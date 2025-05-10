@@ -1,17 +1,25 @@
-//! Soroban smart contract for Stallion decentralized bounty platform
 // SPDX-License-Identifier: MIT
-
 #![no_std]
 
 use soroban_sdk::{
-    Address, Env, Map, String, Symbol, Vec, contract, contracterror, contractimpl, contracttype,
-    symbol_short,
+    Address, ConversionError, Env, Map, String, Symbol, TryFromVal, Val, Vec, contract,
+    contracterror, contractimpl, contractmeta, contracttype, token,
 };
+
+mod events;
+mod utils;
+
+use events::Events;
+use utils::{calculate_fee, get_token_client, validate_distribution_sum};
+
+contractmeta!(
+    key = "Description",
+    val = "Soroban smart contract for Stallion decentralized bounty platform"
+);
 
 // Error enumeration
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
 pub enum Error {
     OnlyOwner = 1,
     InactiveBounty = 2,
@@ -20,23 +28,20 @@ pub enum Error {
     DistributionMustSumTo100 = 5,
     JudgingDeadlineMustBeAfterSubmissionDeadline = 6,
     NotEnoughWinners = 7,
-    NotEnoughApplicants = 8,
     InternalError = 9,
 }
 
-// Bounty status enumeration
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum Status {
+pub enum Status {
     Active,
     Judging,
     WinnersSelected,
 }
 
-// Bounty data structure
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Bounty {
+pub struct Bounty {
     owner: Address,
     reward: i128,                // total reward in stroops
     distribution: Map<u32, u32>, // rank -> percent (parts per hundred)
@@ -50,37 +55,85 @@ struct Bounty {
 }
 
 // Storage keys
-const NEXT_ID: Symbol = symbol_short!("NEXT_ID");
-const BOUNTY: Symbol = symbol_short!("BOUNTY");
+#[derive(Clone, Copy)]
+#[repr(u32)]
+pub enum DataKey {
+    Token = 1,
+    NextId = 2,
+    Bounty = 3,
+}
+
+impl TryFromVal<Env, DataKey> for Val {
+    type Error = ConversionError;
+
+    fn try_from_val(_env: &Env, v: &DataKey) -> Result<Self, Self::Error> {
+        Ok((*v as u32).into())
+    }
+}
 
 #[contract]
 pub struct StallionContract;
 
 #[contractimpl]
 impl StallionContract {
-    // Create a new bounty
+    // Initialize contract with token
+    pub fn __constructor(env: Env, token: Address) {
+        let storage = env.storage().persistent();
+        storage.set(&DataKey::Token, &token);
+    }
+
+    fn token_client(env: &Env) -> token::Client {
+        let token: Address = env.storage().persistent().get(&DataKey::Token).unwrap();
+        get_token_client(env, token)
+    }
+
+    pub fn get_bounty(env: Env, bounty_id: u32) -> Result<Bounty, Error> {
+        let storage = env.storage().persistent();
+        let bounty: Bounty = storage
+            .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, bounty_id))
+            .unwrap();
+        Ok(bounty)
+    }
+
+    pub fn get_bounty_submissions(env: Env, bounty_id: u32) -> Map<Address, Symbol> {
+        let storage = env.storage().persistent();
+        let bounty: Bounty = storage.get(&(DataKey::Bounty, bounty_id)).unwrap();
+        bounty.submissions
+    }
+
+    pub fn get_bounty_applicants(env: Env, bounty_id: u32) -> Vec<Address> {
+        let storage = env.storage().persistent();
+        let bounty: Bounty = storage.get(&(DataKey::Bounty, bounty_id)).unwrap();
+        bounty.applicants
+    }
+
+    pub fn get_bounty_winners(env: Env, bounty_id: u32) -> Vec<Address> {
+        let storage = env.storage().persistent();
+        let bounty: Bounty = storage.get(&(DataKey::Bounty, bounty_id)).unwrap();
+        bounty.winners
+    }
+
+    pub fn get_bounty_status(env: Env, bounty_id: u32) -> Status {
+        let storage = env.storage().persistent();
+        let bounty: Bounty = storage.get(&(DataKey::Bounty, bounty_id)).unwrap();
+        bounty.status
+    }
+
     pub fn create_bounty(
         env: Env,
         owner: Address,
         reward: i128,
-        distribution: Vec<(u32, u32)>, // (rank, percent)
+        distribution: Vec<(u32, u32)>,
         submission_deadline: u64,
         judging_deadline: u64,
         description: String,
     ) -> Result<u32, Error> {
         let storage = env.storage().persistent();
 
-        // Validate distribution sums to 100
-        let mut total: u32 = 0;
-        let mut map = Map::new(&env);
-        for pair in distribution.iter() {
-            let (rank, pct) = pair;
-            total += pct;
-            map.set(rank, pct);
-        }
-        if total != 100 {
+        if !validate_distribution_sum(&distribution) {
             return Err(Error::DistributionMustSumTo100);
         }
+
         // Validate deadlines
         if judging_deadline <= submission_deadline {
             return Err(Error::JudgingDeadlineMustBeAfterSubmissionDeadline);
@@ -88,21 +141,26 @@ impl StallionContract {
 
         // Transfer reward to contract
         owner.require_auth();
-        // TODO: Transfer to contract
+        let token_client = Self::token_client(&env);
+        token_client.transfer(&owner, &env.current_contract_address(), &reward);
 
         // Assign new bounty ID
         let id: u32 = storage
-            .get::<Symbol, Result<u32, soroban_sdk::Error>>(&NEXT_ID)
+            .get::<DataKey, Result<u32, soroban_sdk::Error>>(&DataKey::NextId)
             .unwrap_or(Ok(0))
             .unwrap();
         let next = id + 1;
-        storage.set(&NEXT_ID, &next);
+        storage.set(&DataKey::NextId, &next);
 
         // Initialize bounty
+        let mut distribution_map = Map::new(&env);
+        for (rank, percent) in distribution.iter() {
+            distribution_map.set(rank, percent);
+        }
         let bounty = Bounty {
             owner: owner.clone(),
             reward,
-            distribution: map.clone(),
+            distribution: distribution_map,
             submission_deadline,
             judging_deadline,
             description: description.clone(),
@@ -111,25 +169,14 @@ impl StallionContract {
             submissions: Map::new(&env),
             winners: Vec::new(&env),
         };
-        storage.set(&(BOUNTY, id), &bounty);
-        // Emit event
-        env.events()
-            .publish((Symbol::new(&env, "BountyCreated"),), id);
+        storage.set(&(DataKey::Bounty, id), &bounty);
+        Events::bounty_created(&env, id);
 
         Ok(id)
     }
 
-    // Get bounty details
-    pub fn get_bounty(env: Env, bounty_id: u32) -> Result<Bounty, Error> {
-        let storage = env.storage().persistent();
-        let bounty: Bounty = storage
-            .get::<(Symbol, u32), Bounty>(&(BOUNTY, bounty_id))
-            .unwrap();
-        Ok(bounty)
-    }
-
     // Apply to an active bounty
-    pub fn apply(
+    pub fn apply_to_bounty(
         env: Env,
         applicant: Address,
         bounty_id: u32,
@@ -139,7 +186,7 @@ impl StallionContract {
 
         let storage = env.storage().persistent();
         let mut bounty: Bounty = storage
-            .get::<(Symbol, u32), Bounty>(&(BOUNTY, bounty_id))
+            .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, bounty_id))
             .unwrap();
         let now = env.ledger().timestamp();
         if bounty.status != Status::Active {
@@ -156,11 +203,8 @@ impl StallionContract {
         bounty
             .submissions
             .set(applicant.clone(), submission_link.clone());
-        storage.set(&(BOUNTY, bounty_id), &bounty);
-        env.events().publish(
-            (Symbol::new(&env, "SubmissionAdded"),),
-            (bounty_id, applicant),
-        );
+        storage.set(&(DataKey::Bounty, bounty_id), &bounty);
+        Events::submission_added(&env, bounty_id, applicant);
 
         Ok(())
     }
@@ -176,7 +220,7 @@ impl StallionContract {
 
         let storage = env.storage().persistent();
         let mut bounty: Bounty = storage
-            .get::<(Symbol, u32), Bounty>(&(BOUNTY, bounty_id))
+            .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, bounty_id))
             .unwrap();
         if bounty.owner != owner {
             return Err(Error::OnlyOwner);
@@ -189,31 +233,40 @@ impl StallionContract {
         if winners.len() < num_spec {
             return Err(Error::NotEnoughWinners);
         }
-        if winners.len() as u32 > bounty.applicants.len() {
-            return Err(Error::NotEnoughApplicants); // TODO: Make this so that an error is not thrown but instead rewards are distributed to applicants and the rest returned to owner
-        }
+
         // Distribute rewards
-        let fee = bounty.reward / 10; // 10%
+        let fee = calculate_fee(bounty.reward);
         let net = bounty.reward - fee;
-        let mut idx = 0u32;
-        for rank in bounty.distribution.keys() {
-            let pct = bounty.distribution.get(rank).unwrap();
-            let amount = net * (pct as i128) / 100;
-            let winner = winners.get(idx).unwrap();
-            // TODO: Transfer to winner
-            // env.transfer(&Address::Contract, winner, amount);
-            idx += 1;
+        let token_client = Self::token_client(&env);
+
+        // Calculate how many winners we can actually reward
+        let actual_winners = winners.len().min(bounty.applicants.len());
+        let mut distributed = 0i128;
+
+        // Distribute to available winners
+        for i in 0..actual_winners {
+            let rank = (i + 1) as u32;
+            if let Some(pct) = bounty.distribution.get(rank) {
+                let amount = net * (pct as i128) / 100;
+                let winner = winners.get(i as u32).unwrap();
+                token_client.transfer(&env.current_contract_address(), &winner, &amount);
+                distributed += amount;
+            }
         }
-        // TODO: Fee transfer
-        // env.transfer(&Address::Contract, &bounty.owner, fee);
+
+        // Return remaining funds to owner (if any)
+        let remaining = net - distributed;
+        if remaining > 0 {
+            token_client.transfer(&env.current_contract_address(), &bounty.owner, &remaining);
+        }
+
+        // Transfer platform fee
+        token_client.transfer(&env.current_contract_address(), &bounty.owner, &fee);
 
         bounty.status = Status::WinnersSelected;
         bounty.winners = winners.clone();
-        storage.set(&(BOUNTY, bounty_id), &bounty);
-
-        let winners_selected_key: Symbol = Symbol::new(&env, "WinnersSelected");
-        env.events()
-            .publish((winners_selected_key,), (bounty_id, winners));
+        storage.set(&(DataKey::Bounty, bounty_id), &bounty);
+        Events::winners_selected(&env, bounty_id, winners);
 
         Ok(())
     }
@@ -222,34 +275,53 @@ impl StallionContract {
     pub fn check_judging(env: Env, bounty_id: u32) -> Result<(), Error> {
         let storage = env.storage().persistent();
         let mut bounty: Bounty = storage
-            .get::<(Symbol, u32), Bounty>(&(BOUNTY, bounty_id))
+            .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, bounty_id))
             .unwrap();
         let now = env.ledger().timestamp();
         if now <= bounty.judging_deadline || bounty.status != Status::Active {
             return Ok(());
         }
         // auto-distribute equally to all applicants
-        let fee = bounty.reward / 10;
+        let fee = calculate_fee(bounty.reward);
         let net = bounty.reward - fee;
         let count = bounty.applicants.len() as i128;
         if count == 0 {
-            // TODO: Return reward to owner
+            let token_client = Self::token_client(&env);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &bounty.owner,
+                &bounty.reward,
+            );
             return Ok(());
         }
         let share = net / count;
+        let token_client = Self::token_client(&env);
         for applicant in bounty.applicants.iter() {
-            // TODO: Transfer to applicant
-            // env.transfer(&Address::Contract, &applicant, share);
+            token_client.transfer(&env.current_contract_address(), &applicant, &share);
         }
-        // TODO: Fee transfer
-        // env.transfer(&Address::Contract, &bounty.owner, fee);
+        token_client.transfer(&env.current_contract_address(), &bounty.owner, &fee);
 
         bounty.status = Status::WinnersSelected;
-        storage.set(&(BOUNTY, bounty_id), &bounty);
-        env.events()
-            .publish((Symbol::new(&env, "AutoDistributed"),), bounty_id);
+        storage.set(&(DataKey::Bounty, bounty_id), &bounty);
+        Events::auto_distributed(&env, bounty_id);
 
         Ok(())
+    }
+
+    pub fn get_active_bounties(env: Env) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get::<DataKey, u32>(&DataKey::NextId).unwrap_or(0);
+        let mut active = Vec::new(&env);
+
+        for id in 0..next_id {
+            let bounty = storage
+                .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, id))
+                .unwrap();
+            if bounty.status == Status::Active {
+                active.push_back(id);
+            }
+        }
+        active
     }
 }
 
