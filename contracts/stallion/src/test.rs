@@ -200,3 +200,123 @@ fn test_auto_distribution() {
     assert_eq!(token.balance(&applicant2), 495); // 50% of 900 (after 1% fee)
     assert_eq!(token.balance(&owner), 10); // 1% fee
 }
+
+#[test]
+fn test_get_active_bounties() {
+    let env = Env::default();
+    let (client, token, distributor) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    token.transfer(&distributor, &owner, &3000);
+
+    // Create first active bounty
+    let bounty1_id = client.create_bounty(
+        &owner,
+        &1000,
+        &vec![&env, (1, 100)],
+        &(env.ledger().timestamp() + 1000),
+        &(env.ledger().timestamp() + 2000),
+        &String::from_str(&env, "First bounty"),
+    );
+
+    // Create second active bounty
+    let bounty2_id = client.create_bounty(
+        &owner,
+        &1000,
+        &vec![&env, (1, 100)],
+        &(env.ledger().timestamp() + 1000),
+        &(env.ledger().timestamp() + 2000),
+        &String::from_str(&env, "Second bounty"),
+    );
+
+    // Create and complete third bounty
+    let bounty3_id = client.create_bounty(
+        &owner,
+        &1000,
+        &vec![&env, (1, 100)],
+        &(env.ledger().timestamp() + 1000),
+        &(env.ledger().timestamp() + 2000),
+        &String::from_str(&env, "Third bounty"),
+    );
+    let winner = Address::generate(&env);
+    client.select_winners(&owner, &bounty3_id, &vec![&env, winner]);
+
+    // Get active bounties
+    let active_bounties = client.get_active_bounties();
+
+    // Verify only the first two bounties are active
+    assert_eq!(active_bounties.len(), 2);
+    assert!(active_bounties.contains(&bounty1_id));
+    assert!(active_bounties.contains(&bounty2_id));
+    assert!(!active_bounties.contains(&bounty3_id));
+}
+
+#[test]
+fn test_getters() {
+    let env = Env::default();
+    let (client, token, distributor) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let applicant1 = Address::generate(&env);
+    let applicant2 = Address::generate(&env);
+    token.transfer(&distributor, &owner, &1000);
+
+    // Create bounty
+    let bounty_id = client.create_bounty(
+        &owner,
+        &1000,
+        &vec![&env, (1, 60), (2, 40)],
+        &(env.ledger().timestamp() + 1000),
+        &(env.ledger().timestamp() + 2000),
+        &String::from_str(&env, "Test bounty"),
+    );
+
+    // Test initial status
+    assert_eq!(client.get_bounty_status(&bounty_id), Status::Active);
+
+    // Test submissions and applicants
+    client.apply_to_bounty(&applicant1, &bounty_id, &Symbol::new(&env, "link1"));
+    client.apply_to_bounty(&applicant2, &bounty_id, &Symbol::new(&env, "link2"));
+
+    let applicants = client.get_bounty_applicants(&bounty_id);
+    assert_eq!(applicants.len(), 2);
+    assert!(applicants.contains(&applicant1));
+    assert!(applicants.contains(&applicant2));
+
+    let submissions = client.get_bounty_submissions(&bounty_id);
+    assert_eq!(submissions.len(), 2);
+    assert_eq!(
+        submissions.get(applicant1.clone()).unwrap(),
+        Symbol::new(&env, "link1")
+    );
+    assert_eq!(
+        submissions.get(applicant2.clone()).unwrap(),
+        Symbol::new(&env, "link2")
+    );
+
+    // Test winners getter
+    let winners = vec![&env, applicant1.clone(), applicant2.clone()];
+    client.select_winners(&owner, &bounty_id, &winners);
+
+    let stored_winners = client.get_bounty_winners(&bounty_id);
+    assert_eq!(stored_winners.len(), 2);
+    assert!(stored_winners.contains(&applicant1));
+    assert!(stored_winners.contains(&applicant2));
+
+    // Verify status change
+    assert_eq!(
+        client.get_bounty_status(&bounty_id),
+        Status::WinnersSelected
+    );
+
+    // Test full bounty getter
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.owner, owner);
+    assert_eq!(bounty.reward, 1000);
+    assert_eq!(bounty.status, Status::WinnersSelected);
+    assert_eq!(bounty.winners, stored_winners);
+    assert_eq!(bounty.applicants, applicants);
+    assert_eq!(bounty.submissions, submissions);
+}

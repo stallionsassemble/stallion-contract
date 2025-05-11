@@ -6,11 +6,13 @@ use soroban_sdk::{
 };
 
 mod events;
+mod storage;
 mod types;
 mod utils;
 
 use events::Events;
-use types::{Bounty, DataKey, Error, Status};
+use storage::{bounty_key, next_id_key, token_key};
+use types::{Bounty, Error, Status};
 use utils::{calculate_fee, get_token_client, validate_distribution_sum};
 
 contractmeta!(
@@ -26,43 +28,41 @@ impl StallionContract {
     // Initialize contract with token
     pub fn __constructor(env: Env, token: Address) {
         let storage = env.storage().persistent();
-        storage.set(&DataKey::Token, &token);
+        storage.set(&token_key(), &token);
     }
 
     fn token_client(env: &Env) -> token::Client {
-        let token: Address = env.storage().persistent().get(&DataKey::Token).unwrap();
+        let token: Address = env.storage().persistent().get(&token_key()).unwrap();
         get_token_client(env, token)
     }
 
     pub fn get_bounty(env: Env, bounty_id: u32) -> Result<Bounty, Error> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage
-            .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, bounty_id))
-            .unwrap();
+        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
         Ok(bounty)
     }
 
     pub fn get_bounty_submissions(env: Env, bounty_id: u32) -> Map<Address, Symbol> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&(DataKey::Bounty, bounty_id)).unwrap();
+        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
         bounty.submissions
     }
 
     pub fn get_bounty_applicants(env: Env, bounty_id: u32) -> Vec<Address> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&(DataKey::Bounty, bounty_id)).unwrap();
+        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
         bounty.applicants
     }
 
     pub fn get_bounty_winners(env: Env, bounty_id: u32) -> Vec<Address> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&(DataKey::Bounty, bounty_id)).unwrap();
+        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
         bounty.winners
     }
 
     pub fn get_bounty_status(env: Env, bounty_id: u32) -> Status {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&(DataKey::Bounty, bounty_id)).unwrap();
+        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
         bounty.status
     }
 
@@ -92,12 +92,9 @@ impl StallionContract {
         token_client.transfer(&owner, &env.current_contract_address(), &reward);
 
         // Assign new bounty ID
-        let id: u32 = storage
-            .get::<DataKey, Result<u32, soroban_sdk::Error>>(&DataKey::NextId)
-            .unwrap_or(Ok(0))
-            .unwrap();
+        let id: u32 = storage.get(&next_id_key()).unwrap_or(0);
         let next = id + 1;
-        storage.set(&DataKey::NextId, &next);
+        storage.set(&next_id_key(), &next);
 
         // Initialize bounty
         let mut distribution_map = Map::new(&env);
@@ -116,7 +113,7 @@ impl StallionContract {
             submissions: Map::new(&env),
             winners: Vec::new(&env),
         };
-        storage.set(&(DataKey::Bounty, id), &bounty);
+        storage.set(&bounty_key(id), &bounty);
         Events::bounty_created(&env, id);
 
         Ok(id)
@@ -132,9 +129,7 @@ impl StallionContract {
         applicant.require_auth();
 
         let storage = env.storage().persistent();
-        let mut bounty: Bounty = storage
-            .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, bounty_id))
-            .unwrap();
+        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
         let now = env.ledger().timestamp();
         if bounty.status != Status::Active {
             return Err(Error::InactiveBounty);
@@ -150,7 +145,7 @@ impl StallionContract {
         bounty
             .submissions
             .set(applicant.clone(), submission_link.clone());
-        storage.set(&(DataKey::Bounty, bounty_id), &bounty);
+        storage.set(&bounty_key(bounty_id), &bounty);
         Events::submission_added(&env, bounty_id, applicant);
 
         Ok(())
@@ -166,9 +161,7 @@ impl StallionContract {
         owner.require_auth();
 
         let storage = env.storage().persistent();
-        let mut bounty: Bounty = storage
-            .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, bounty_id))
-            .unwrap();
+        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
         if bounty.owner != owner {
             return Err(Error::OnlyOwner);
         }
@@ -212,7 +205,7 @@ impl StallionContract {
 
         bounty.status = Status::WinnersSelected;
         bounty.winners = winners.clone();
-        storage.set(&(DataKey::Bounty, bounty_id), &bounty);
+        storage.set(&bounty_key(bounty_id), &bounty);
         Events::winners_selected(&env, bounty_id, winners);
 
         Ok(())
@@ -221,9 +214,7 @@ impl StallionContract {
     // Check and auto-distribute if judging deadline passed
     pub fn check_judging(env: Env, bounty_id: u32) -> Result<(), Error> {
         let storage = env.storage().persistent();
-        let mut bounty: Bounty = storage
-            .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, bounty_id))
-            .unwrap();
+        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
         let now = env.ledger().timestamp();
         if now <= bounty.judging_deadline || bounty.status != Status::Active {
             return Ok(());
@@ -249,7 +240,7 @@ impl StallionContract {
         token_client.transfer(&env.current_contract_address(), &bounty.owner, &fee);
 
         bounty.status = Status::WinnersSelected;
-        storage.set(&(DataKey::Bounty, bounty_id), &bounty);
+        storage.set(&bounty_key(bounty_id), &bounty);
         Events::auto_distributed(&env, bounty_id);
 
         Ok(())
@@ -257,13 +248,11 @@ impl StallionContract {
 
     pub fn get_active_bounties(env: Env) -> Vec<u32> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get::<DataKey, u32>(&DataKey::NextId).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
         let mut active = Vec::new(&env);
 
         for id in 0..next_id {
-            let bounty = storage
-                .get::<(DataKey, u32), Bounty>(&(DataKey::Bounty, id))
-                .unwrap();
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
             if bounty.status == Status::Active {
                 active.push_back(id);
             }
