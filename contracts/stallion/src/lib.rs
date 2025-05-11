@@ -1,75 +1,22 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Boost Software License, Version 1.0.0
 #![no_std]
 
 use soroban_sdk::{
-    Address, ConversionError, Env, Map, String, Symbol, TryFromVal, Val, Vec, contract,
-    contracterror, contractimpl, contractmeta, contracttype, token,
+    Address, Env, Map, String, Symbol, Vec, contract, contractimpl, contractmeta, token,
 };
 
 mod events;
+mod types;
 mod utils;
 
 use events::Events;
+use types::{Bounty, DataKey, Error, Status};
 use utils::{calculate_fee, get_token_client, validate_distribution_sum};
 
 contractmeta!(
     key = "Description",
     val = "Soroban smart contract for Stallion decentralized bounty platform"
 );
-
-// Error enumeration
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub enum Error {
-    OnlyOwner = 1,
-    InactiveBounty = 2,
-    BountyDeadlinePassed = 3,
-    JudgingDeadlinePassed = 4,
-    DistributionMustSumTo100 = 5,
-    JudgingDeadlineMustBeAfterSubmissionDeadline = 6,
-    NotEnoughWinners = 7,
-    InternalError = 9,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Status {
-    Active,
-    Judging,
-    WinnersSelected,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Bounty {
-    owner: Address,
-    reward: i128,                // total reward in stroops
-    distribution: Map<u32, u32>, // rank -> percent (parts per hundred)
-    submission_deadline: u64,    // ledger timestamp
-    judging_deadline: u64,       // ledger timestamp
-    description: String,
-    status: Status,
-    applicants: Vec<Address>,
-    submissions: Map<Address, Symbol>, // applicant -> link
-    winners: Vec<Address>,
-}
-
-// Storage keys
-#[derive(Clone, Copy)]
-#[repr(u32)]
-pub enum DataKey {
-    Token = 1,
-    NextId = 2,
-    Bounty = 3,
-}
-
-impl TryFromVal<Env, DataKey> for Val {
-    type Error = ConversionError;
-
-    fn try_from_val(_env: &Env, v: &DataKey) -> Result<Self, Self::Error> {
-        Ok((*v as u32).into())
-    }
-}
 
 #[contract]
 pub struct StallionContract;

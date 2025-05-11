@@ -1,12 +1,10 @@
 #![cfg(test)]
 
-extern crate std;
-
 use crate::{StallionContract, StallionContractClient, Status};
 use soroban_sdk::{
     Address, Env, String, Symbol,
     testutils::{Address as _, Ledger},
-    token::{StellarAssetClient, TokenClient},
+    token::{StellarAssetClient as TokenAdminClient, TokenClient},
     vec,
 };
 
@@ -22,7 +20,7 @@ fn create_token_contract(e: &Env) -> (TokenClient, Address) {
     // client for SEP-41 functions
     let token = TokenClient::new(&e, &token_address);
     // client for Stellar Asset Contract functions
-    let token_sac = StellarAssetClient::new(&e, &token_address);
+    let token_sac = TokenAdminClient::new(&e, &token_address);
 
     // note that you need to account for the difference between the minimal
     // unit and the unit itself when working with amounts.
