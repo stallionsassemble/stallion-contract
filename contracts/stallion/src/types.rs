@@ -1,6 +1,5 @@
 use soroban_sdk::{
-    Address, ConversionError, Env, Map, String, Symbol, TryFromVal, Val, Vec, contracterror,
-    contracttype,
+    Address, ConversionError, Env, Map, String, TryFromVal, Val, Vec, contracterror, contracttype,
 };
 
 #[contracterror]
@@ -17,6 +16,8 @@ pub enum Error {
     NotAdmin = 9,
     AdminCannotBeZero = 10,
     FeeAccountCannotBeZero = 11,
+    BountyHasSubmissions = 12,
+    InvalidDeadlineUpdate = 13,
 }
 
 #[contracttype]
@@ -32,13 +33,14 @@ pub enum Status {
 pub struct Bounty {
     pub owner: Address,
     pub reward: i128,
+    pub token: Address,
     pub distribution: Map<u32, u32>,
     pub submission_deadline: u64,
     pub judging_deadline: u64,
     pub description: String,
     pub status: Status,
     pub applicants: Vec<Address>,
-    pub submissions: Map<Address, Symbol>,
+    pub submissions: Map<Address, String>,
     pub winners: Vec<Address>,
 }
 

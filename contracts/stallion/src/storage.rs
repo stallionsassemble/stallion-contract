@@ -1,9 +1,5 @@
 use crate::types::DataKey;
 
-pub fn token_key() -> DataKey {
-    DataKey::Token
-}
-
 pub fn next_id_key() -> DataKey {
     DataKey::NextId
 }

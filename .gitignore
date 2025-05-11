@@ -2,4 +2,5 @@ target/
 /.sccache/
 .DS_Store
 .soroban
+.stellar
 test_snapshots
