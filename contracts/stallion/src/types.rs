@@ -13,7 +13,10 @@ pub enum Error {
     DistributionMustSumTo100 = 5,
     JudgingDeadlineMustBeAfterSubmissionDeadline = 6,
     NotEnoughWinners = 7,
-    InternalError = 9,
+    InternalError = 8,
+    NotAdmin = 9,
+    AdminCannotBeZero = 10,
+    FeeAccountCannotBeZero = 11,
 }
 
 #[contracttype]
@@ -45,6 +48,8 @@ pub enum DataKey {
     Token = 1,
     NextId = 2,
     Bounty = 3,
+    Admin = 4,
+    FeeAccount = 5,
 }
 
 impl TryFromVal<Env, DataKey> for Val {

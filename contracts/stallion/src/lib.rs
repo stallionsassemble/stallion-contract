@@ -11,9 +11,9 @@ mod types;
 mod utils;
 
 use events::Events;
-use storage::{bounty_key, next_id_key, token_key};
+use storage::{admin_key, bounty_key, fee_account_key, next_id_key, token_key};
 use types::{Bounty, Error, Status};
-use utils::{calculate_fee, get_token_client, validate_distribution_sum};
+use utils::{calculate_fee, get_token_client, is_zero_address, validate_distribution_sum};
 
 contractmeta!(
     key = "Description",
@@ -25,10 +25,56 @@ pub struct StallionContract;
 
 #[contractimpl]
 impl StallionContract {
-    // Initialize contract with token
-    pub fn __constructor(env: Env, token: Address) {
+    pub fn __constructor(env: Env, token: Address, admin: Address, fee_account: Address) {
+        if is_zero_address(&env, &admin) {
+            panic!("admin cannot be zero address");
+        }
+        if is_zero_address(&env, &fee_account) {
+            panic!("fee account cannot be zero address");
+        }
+
         let storage = env.storage().persistent();
         storage.set(&token_key(), &token);
+        storage.set(&admin_key(), &admin);
+        storage.set(&fee_account_key(), &fee_account);
+        Events::emit_admin_updated(&env, admin);
+        Events::emit_fee_account_updated(&env, fee_account);
+    }
+
+    fn get_admin(env: &Env) -> Address {
+        env.storage().persistent().get(&admin_key()).unwrap()
+    }
+
+    fn get_fee_account(env: &Env) -> Address {
+        env.storage().persistent().get(&fee_account_key()).unwrap()
+    }
+
+    pub fn update_admin(env: Env, new_admin: Address) -> Result<Address, Error> {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
+
+        if is_zero_address(&env, &new_admin) {
+            return Err(Error::AdminCannotBeZero);
+        }
+
+        env.storage().persistent().set(&admin_key(), &new_admin);
+        Events::emit_admin_updated(&env, new_admin.clone());
+        Ok(new_admin)
+    }
+
+    pub fn update_fee_account(env: Env, new_fee_account: Address) -> Result<Address, Error> {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
+
+        if is_zero_address(&env, &new_fee_account) {
+            return Err(Error::FeeAccountCannotBeZero);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&fee_account_key(), &new_fee_account);
+        Events::emit_fee_account_updated(&env, new_fee_account.clone());
+        Ok(new_fee_account)
     }
 
     fn token_client(env: &Env) -> token::Client {
@@ -114,7 +160,7 @@ impl StallionContract {
             winners: Vec::new(&env),
         };
         storage.set(&bounty_key(id), &bounty);
-        Events::bounty_created(&env, id);
+        Events::emit_bounty_created(&env, id);
 
         Ok(id)
     }
@@ -146,7 +192,7 @@ impl StallionContract {
             .submissions
             .set(applicant.clone(), submission_link.clone());
         storage.set(&bounty_key(bounty_id), &bounty);
-        Events::submission_added(&env, bounty_id, applicant);
+        Events::emit_submission_added(&env, bounty_id, applicant);
 
         Ok(())
     }
@@ -178,6 +224,7 @@ impl StallionContract {
         let fee = calculate_fee(bounty.reward);
         let net = bounty.reward - fee;
         let token_client = Self::token_client(&env);
+        let fee_account = Self::get_fee_account(&env);
 
         // Calculate how many winners we can actually reward
         let actual_winners = winners.len().min(bounty.applicants.len());
@@ -200,13 +247,13 @@ impl StallionContract {
             token_client.transfer(&env.current_contract_address(), &bounty.owner, &remaining);
         }
 
-        // Transfer platform fee
-        token_client.transfer(&env.current_contract_address(), &bounty.owner, &fee);
+        // Transfer platform fee to fee account instead of owner
+        token_client.transfer(&env.current_contract_address(), &fee_account, &fee);
 
         bounty.status = Status::WinnersSelected;
         bounty.winners = winners.clone();
         storage.set(&bounty_key(bounty_id), &bounty);
-        Events::winners_selected(&env, bounty_id, winners);
+        Events::emit_winners_selected(&env, bounty_id, winners);
 
         Ok(())
     }
@@ -234,14 +281,15 @@ impl StallionContract {
         }
         let share = net / count;
         let token_client = Self::token_client(&env);
+        let fee_account = Self::get_fee_account(&env);
         for applicant in bounty.applicants.iter() {
             token_client.transfer(&env.current_contract_address(), &applicant, &share);
         }
-        token_client.transfer(&env.current_contract_address(), &bounty.owner, &fee);
+        token_client.transfer(&env.current_contract_address(), &fee_account, &fee);
 
         bounty.status = Status::WinnersSelected;
         storage.set(&bounty_key(bounty_id), &bounty);
-        Events::auto_distributed(&env, bounty_id);
+        Events::emit_auto_distributed(&env, bounty_id);
 
         Ok(())
     }

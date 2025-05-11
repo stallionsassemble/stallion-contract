@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, Vec, token};
+use soroban_sdk::{Address, Env, String, Vec, token};
 
 // Constants
 pub const PLATFORM_FEE_PERCENT: u32 = 1;
@@ -17,4 +17,13 @@ pub fn validate_distribution_sum(distribution: &Vec<(u32, u32)>) -> bool {
         total += pct;
     }
     total == 100
+}
+
+pub fn is_zero_address(env: &Env, addr: &Address) -> bool {
+    // The byte representation of a zero address would be all zeros
+    addr.to_string()
+        == String::from_str(
+            env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        )
 }
