@@ -4,7 +4,7 @@ extern crate std;
 
 use crate::{StallionContract, StallionContractClient, Status};
 use soroban_sdk::{
-    Address, Env, FromVal, IntoVal, String, Symbol, log,
+    Address, Env, FromVal, IntoVal, String, Symbol,
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _, Ledger},
     token::{StellarAssetClient as TokenAdminClient, TokenClient},
     vec,
@@ -459,12 +459,15 @@ fn test_admin_functions() {
     );
     verify_fee_account_updated_event(&env, &contract_id, &new_fee_account);
 
-    // FIX: Test that old admin can't make changes
-    // let result = client.try_update_fee_account(&new_fee_account).unwrap();
-    // assert!(result.is_err());
+    // Clear previous mock auths
+    env.set_auths(&[]);
 
-    // FIX: Test that non-admin can't make changes
-    // let random_user = Address::generate(&env);
-    // let result = client.try_update_fee_account(&random_user).unwrap();
-    // assert!(result.is_err());
+    // Test that old admin can't make changes
+    let result = client.try_update_fee_account(&new_fee_account);
+    assert!(result.is_err());
+
+    // Test that non-admin can't make changes
+    let random_user = Address::generate(&env);
+    let result = client.try_update_fee_account(&random_user);
+    assert!(result.is_err());
 }
