@@ -2,106 +2,91 @@
 
 [![License](https://img.shields.io/badge/License-Boost_1.0-lightblue.svg)](https://www.boost.org/LICENSE_1_0.txt)
 
-A decentralized bounty platform built on the Stellar network using Soroban smart contracts. This project allows users to create bounties, apply to them, and distribute rewards to winners in a trustless manner.
+A decentralized bounty platform built on the Stellar network using Soroban smart contracts. This project enables trustless creation, management, and reward distribution for bounties in a secure and transparent manner.
 
-## Features
+## 🌟 Features
 
-- Create bounties with custom rewards and deadlines
-- Apply to bounties with submission links
-- Select winners and distribute rewards automatically
-- Fee distribution to platform administrators
-- Time-based bounty status management (Open, Judging, Completed)
-- Secure access control with admin functions
+### Bounty Management
 
-## Prerequisites
+- **Create Bounties**: Set up bounties with custom rewards, titles, and deadlines
+- **Update Bounties**: Modify bounty details before the submission deadline
+- **Delete Bounties**: Remove bounties that have no submissions
+- **Time-based Status**: Automatic status tracking (Active, In Review, Completed)
+
+### Bounty Participation
+
+- **Apply to Bounties**: Submit your work for consideration
+- **Update Submissions**: Refine your submission before the deadline
+- **Multiple Winners Support**: Flexible reward distribution among multiple winners
+
+### Reward System
+
+- **Custom Reward Distribution**: Define percentage-based reward distribution for multiple winners
+- **Automatic Payouts**: Secure and transparent reward distribution
+- **Platform Fees**: Built-in fee mechanism for platform sustainability
+
+### Administration
+
+- **Admin Controls**: Secure management of platform settings
+- **Fee Management**: Configurable fee account for platform revenue
+- **Access Control**: Role-based permissions for all operations
+
+### Security & Transparency
+
+- **Immutable Records**: All actions are recorded on the blockchain
+- **Transparent Judging**: Clear criteria and process for winner selection
+- **Secure Fund Handling**: Funds are held in escrow until bounty completion
+
+## 🏗️ Contract Architecture
+
+The smart contract is organized into several modules:
+
+- `lib.rs`: Core contract implementation and business logic
+- `storage.rs`: Data persistence and storage management
+- `events.rs`: Event definitions and emission for on-chain transparency
+- `types.rs`: Custom data types and enums
+- `utils.rs`: Helper functions and utilities
+- `test.rs`: Comprehensive test suite
+
+## 🛠️ Prerequisites
 
 - Rust (latest stable version)
 - Soroban CLI (latest version)
 - Cargo (Rust's package manager)
 
-## Getting Started
+## 🚀 Getting Started
 
 1. **Clone the repository**
+2. **Build the contract** using the provided Makefile
+3. **Run tests** to verify everything works as expected
 
-   ```bash
-   git clone https://github.com/your-username/stallion-contract.git
-   cd stallion-contract
-   ```
+## 📝 Usage
 
-2. **Build the contract**
+### For Bounty Creators
 
-   ```bash
-   make build
-   ```
+- Deploy a new bounty with your desired reward and timeline
+- Review submissions and select winners based on merit
+- Manage bounty details and deadlines
 
-3. **Run tests**
-   ```bash
-   make test
-   ```
+### For Participants
 
-## Contract Architecture
+- Browse active bounties
+- Submit your work before the deadline
+- Update your submission if needed
+- Get rewarded for quality contributions
 
-The smart contract is structured into several modules:
+## 🔒 Security
 
-- `lib.rs`: Main contract implementation
-- `storage.rs`: Storage management and data structures
-- `events.rs`: Event definitions and emission
-- `types.rs`: Custom types and enums
-- `utils.rs`: Utility functions
-- `test.rs`: Test suite
+- All critical operations are protected by access control
+- Funds are securely escrowed in the contract
+- Comprehensive input validation on all functions
+- Time-based state transitions are strictly enforced
+- Admin-only functions for platform management
 
-## Usage
-
-### Initialization
-
-Deploy the contract and initialize it with the required parameters:
-
-```rust
-    let contract_id = env.register(
-        StallionContract {},
-        (token.address.clone(), admin.clone(), fee_account.clone()),
-    );
-    let client = StallionContractClient::new(&env, &contract_id);
-```
-
-### Creating a Bounty
-
-```rust
-let distribution = vec![(7000, 3000)]; // 70% to 1st place, 30% to 2nd
-let result = client.create_bounty(
-    &bounty_owner,
-    1000, // reward amount
-    distribution,
-    env.ledger().timestamp() + 7 * 24 * 60 * 60, // 1 week from now
-    env.ledger().timestamp() + 14 * 24 * 60 * 60, // 2 weeks from now
-    String::from_slice(&env, "Build a DEX interface")
-);
-```
-
-### Applying to a Bounty
-
-```rust
-client.apply_to_bounty(&applicant, bounty_id, Symbol::new(&env, "github.com/example/submission"));
-```
-
-### Selecting Winners
-
-```rust
-let winners = vec![winner1, winner2];
-client.select_winners(&bounty_owner, bounty_id, &winners);
-```
-
-## Security
-
-- Admin-only functions are protected
-- All operations include access control checks
-- Time-based state transitions are enforced
-- Input validation is performed for all user inputs
-
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+## 📄 License
 
 This project is licensed under the Boost Software License 1.0 - see the [LICENSE](LICENSE) file for details.
