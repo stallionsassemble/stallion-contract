@@ -18,6 +18,10 @@ impl Events {
     fn submission_added_event(env: &Env) -> Symbol {
         Symbol::new(env, "submission_added")
     }
+    
+    fn submission_updated_event(env: &Env) -> Symbol {
+        Symbol::new(env, "submission_updated")
+    }
 
     fn winners_selected_event(env: &Env) -> Symbol {
         Symbol::new(env, "winners_selected")
@@ -55,6 +59,11 @@ impl Events {
     pub fn emit_submission_added(env: &Env, bounty_id: u32, applicant: Address) {
         env.events()
             .publish((Self::submission_added_event(env),), (bounty_id, applicant));
+    }
+    
+    pub fn emit_submission_updated(env: &Env, bounty_id: u32, applicant: Address) {
+        env.events()
+            .publish((Self::submission_updated_event(env),), (bounty_id, applicant));
     }
 
     pub fn emit_winners_selected(env: &Env, bounty_id: u32, winners: Vec<Address>) {

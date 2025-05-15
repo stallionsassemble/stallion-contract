@@ -298,7 +298,7 @@ fn test_winner_selection() {
     client.select_winners(&owner, &bounty_id, &winners);
 
     let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(bounty.status, Status::WinnersSelected);
+    assert_eq!(bounty.status, Status::Completed);
 
     // Verify token distribution includes fee going to fee_account
     assert_eq!(token.balance(&applicant1), 594); // 60% of 990 (after 1% fee)
@@ -404,35 +404,123 @@ fn test_getters() {
     let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
-    let owner = Address::generate(&env);
-    let applicant1 = Address::generate(&env);
-    let applicant2 = Address::generate(&env);
-    token.transfer(&distributor, &owner, &1000);
+    let owner1 = Address::generate(&env);
+    let owner2 = Address::generate(&env);
 
-    // Create bounty
-    let bounty_id = client.create_bounty(
-        &owner,
+    // Transfer tokens to owners
+    token.transfer(&distributor, &owner1, &2000);
+    token.transfer(&distributor, &owner2, &1000);
+
+    // Create second token contract and get its admin client to mint tokens
+    let (token2, token2_distributor) = create_token_contract(&env);
+
+    // Mint tokens to owners for both tokens
+    token.transfer(&distributor, &owner1, &2000);
+    token.transfer(&distributor, &owner2, &1000);
+
+    // Mint tokens for token2
+    let token2_admin = TokenAdminClient::new(&env, &token2.address);
+    token2_admin.mint(&token2_distributor, &10000);
+    token2.transfer(&token2_distributor, &owner1, &1000);
+
+    // Bounty 1: Owner1, Token1
+    let bounty1_id = client.create_bounty(
+        &owner1,
         &token.address,
         &1000,
         &vec![&env, (1, 60), (2, 40)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
-        &String::from_str(&env, "Test bounty"),
+        &String::from_str(&env, "Bounty 1"),
     );
 
-    // Test initial status
-    assert_eq!(client.get_bounty_status(&bounty_id), Status::Active);
+    // Bounty 2: Owner1, Token2
+    let bounty2_id = client.create_bounty(
+        &owner1,
+        &token2.address,
+        &500,
+        &vec![&env, (1, 100)],
+        &(env.ledger().timestamp() + 1000),
+        &(env.ledger().timestamp() + 2000),
+        &String::from_str(&env, "Bounty 2"),
+    );
 
-    // Test submissions and applicants
-    client.apply_to_bounty(&applicant1, &bounty_id, &String::from_str(&env, "link1"));
-    client.apply_to_bounty(&applicant2, &bounty_id, &String::from_str(&env, "link2"));
+    // Bounty 3: Owner2, Token1
+    let bounty3_id = client.create_bounty(
+        &owner2,
+        &token.address,
+        &750,
+        &vec![&env, (1, 50), (2, 30), (3, 20)],
+        &(env.ledger().timestamp() + 1000),
+        &(env.ledger().timestamp() + 2000),
+        &String::from_str(&env, "Bounty 3"),
+    );
 
-    let applicants = client.get_bounty_applicants(&bounty_id);
+    // Test get_bounties
+    let all_bounties = client.get_bounties();
+    assert_eq!(all_bounties.len(), 3);
+    assert!(all_bounties.contains(&bounty1_id));
+    assert!(all_bounties.contains(&bounty2_id));
+    assert!(all_bounties.contains(&bounty3_id));
+
+    // Test get_owner_bounties and get_owner_bounties_count
+    let owner1_bounties = client.get_owner_bounties(&owner1);
+    assert_eq!(owner1_bounties.len(), 2);
+    assert!(owner1_bounties.contains(&bounty1_id));
+    assert!(owner1_bounties.contains(&bounty2_id));
+    assert_eq!(client.get_owner_bounties_count(&owner1), 2);
+
+    let owner2_bounties = client.get_owner_bounties(&owner2);
+    assert_eq!(owner2_bounties.len(), 1);
+    assert!(owner2_bounties.contains(&bounty3_id));
+    assert_eq!(client.get_owner_bounties_count(&owner2), 1);
+
+    // Test get_user_bounties and get_user_bounties_count after making submissions
+    // These will be our submitters
+    let applicant1 = Address::generate(&env);
+    let applicant2 = Address::generate(&env);
+
+    // Submit to bounties
+    client.apply_to_bounty(&applicant1, &bounty1_id, &String::from_str(&env, "link1"));
+    client.apply_to_bounty(&applicant1, &bounty2_id, &String::from_str(&env, "link2"));
+    client.apply_to_bounty(&applicant2, &bounty1_id, &String::from_str(&env, "link3"));
+
+    // Test get_user_bounties for applicant1 (should have submissions to bounty1 and bounty2)
+    let applicant1_bounties = client.get_user_bounties(&applicant1);
+    assert_eq!(applicant1_bounties.len(), 2);
+    assert!(applicant1_bounties.contains(&bounty1_id));
+    assert!(applicant1_bounties.contains(&bounty2_id));
+    assert_eq!(client.get_user_bounties_count(&applicant1), 2);
+
+    // Test get_user_bounties for applicant2 (should have submission to bounty1 only)
+    let applicant2_bounties = client.get_user_bounties(&applicant2);
+    assert_eq!(applicant2_bounties.len(), 1);
+    assert!(applicant2_bounties.contains(&bounty1_id));
+    assert_eq!(client.get_user_bounties_count(&applicant2), 1);
+
+    // Test get_user_bounties for owner1 (should be empty since owner1 hasn't made any submissions)
+    assert_eq!(client.get_user_bounties(&owner1).len(), 0);
+    assert_eq!(client.get_user_bounties_count(&owner1), 0);
+
+    // Test get_bounties_by_token and get_bounties_by_token_count
+    let token1_bounties = client.get_bounties_by_token(&token.address);
+    assert_eq!(token1_bounties.len(), 2);
+    assert!(token1_bounties.contains(&bounty1_id));
+    assert!(token1_bounties.contains(&bounty3_id));
+    assert_eq!(client.get_bounties_by_token_count(&token.address), 2);
+
+    let token2_bounties = client.get_bounties_by_token(&token2.address);
+    assert_eq!(token2_bounties.len(), 1);
+    assert!(token2_bounties.contains(&bounty2_id));
+    assert_eq!(client.get_bounties_by_token_count(&token2.address), 1);
+
+    // Test submissions and applicants on bounty1
+    let applicants = client.get_bounty_applicants(&bounty1_id);
     assert_eq!(applicants.len(), 2);
     assert!(applicants.contains(&applicant1));
     assert!(applicants.contains(&applicant2));
 
-    let submissions = client.get_bounty_submissions(&bounty_id);
+    let submissions = client.get_bounty_submissions(&bounty1_id);
     assert_eq!(submissions.len(), 2);
     assert_eq!(
         submissions.get(applicant1.clone()).unwrap(),
@@ -440,32 +528,128 @@ fn test_getters() {
     );
     assert_eq!(
         submissions.get(applicant2.clone()).unwrap(),
-        String::from_str(&env, "link2")
+        String::from_str(&env, "link3")
     );
+    
+    // Save the current ledger time to restore it later
+    let original_timestamp = env.ledger().timestamp();
+    
+    // Note: Moved submission update tests to a separate test function
+    // to avoid modifying the shared state that other tests depend on
 
     // Test winners getter
     let winners = vec![&env, applicant1.clone(), applicant2.clone()];
-    client.select_winners(&owner, &bounty_id, &winners);
+    client.select_winners(&owner1, &bounty1_id, &winners);
 
-    let stored_winners = client.get_bounty_winners(&bounty_id);
+    let stored_winners = client.get_bounty_winners(&bounty1_id);
     assert_eq!(stored_winners.len(), 2);
     assert!(stored_winners.contains(&applicant1));
     assert!(stored_winners.contains(&applicant2));
 
     // Verify status change
-    assert_eq!(
-        client.get_bounty_status(&bounty_id),
-        Status::WinnersSelected
-    );
+    assert_eq!(client.get_bounty_status(&bounty1_id), Status::Completed);
 
     // Test full bounty getter
-    let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(bounty.owner, owner);
+    let bounty = client.get_bounty(&bounty1_id);
+    assert_eq!(bounty.owner, owner1);
     assert_eq!(bounty.reward, 1000);
-    assert_eq!(bounty.status, Status::WinnersSelected);
+    assert_eq!(bounty.status, Status::Completed);
     assert_eq!(bounty.winners, stored_winners);
     assert_eq!(bounty.applicants, applicants);
     assert_eq!(bounty.submissions, submissions);
+}
+
+#[test]
+fn test_update_submission() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    // Setup test data
+    let owner = Address::generate(&env);
+    let applicant1 = Address::generate(&env);
+    let applicant2 = Address::generate(&env);
+
+    // Transfer tokens to owner
+    token.transfer(&distributor, &owner, &2000);
+
+    // Create a bounty
+    let bounty_id = client.create_bounty(
+        &owner,
+        &token.address,
+        &1000,
+        &vec![&env, (1, 100)],
+        &(env.ledger().timestamp() + 1000), // submission deadline
+        &(env.ledger().timestamp() + 2000), // judging deadline
+        &String::from_str(&env, "Test Bounty")
+    );
+
+    // Make some submissions
+    client.apply_to_bounty(
+        &applicant1,
+        &bounty_id,
+        &String::from_str(&env, "initial_link1")
+    );
+    client.apply_to_bounty(
+        &applicant2,
+        &bounty_id,
+        &String::from_str(&env, "link2")
+    );
+
+    // Verify initial state
+    let initial_submissions = client.get_bounty_submissions(&bounty_id);
+    assert_eq!(
+        initial_submissions.get(applicant1.clone()).unwrap(),
+        String::from_str(&env, "initial_link1")
+    );
+    assert_eq!(
+        initial_submissions.get(applicant2.clone()).unwrap(),
+        String::from_str(&env, "link2")
+    );
+
+    // Test successful update
+    client.update_submission(
+        &applicant1,
+        &bounty_id,
+        &String::from_str(&env, "updated_link1")
+    );
+
+    // Verify the update
+    let updated_submissions = client.get_bounty_submissions(&bounty_id);
+    assert_eq!(
+        updated_submissions.get(applicant1.clone()).unwrap(),
+        String::from_str(&env, "updated_link1")
+    );
+    assert_eq!(
+        updated_submissions.get(applicant2.clone()).unwrap(),
+        String::from_str(&env, "link2")
+    );
+
+    // Test updating a non-existent submission (should fail with InternalError)
+    let non_applicant = Address::generate(&env);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.update_submission(
+            &non_applicant,
+            &bounty_id,
+            &String::from_str(&env, "should_fail")
+        );
+    }));
+    assert!(result.is_err(), "Should not be able to update a non-existent submission");
+
+    // Test updating after deadline (should fail with BountyDeadlinePassed)
+    let bounty = client.get_bounty(&bounty_id);
+    env.ledger().with_mut(|li| {
+        li.timestamp = bounty.submission_deadline + 1;
+    });
+    
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.update_submission(
+            &applicant1,
+            &bounty_id,
+            &String::from_str(&env, "should_fail_due_to_deadline")
+        );
+    }));
+    assert!(result.is_err(), "Should not be able to update submission after deadline");
 }
 
 #[test]
@@ -485,7 +669,7 @@ fn test_update_and_delete_bounty() {
     let distribution = vec![&env, (1, 60), (2, 40)];
     let submission_deadline = env.ledger().timestamp() + 1000;
     let judging_deadline = submission_deadline + 1000;
-    let description = String::from_str(&env, "Test Bounty");
+    let title = String::from_str(&env, "Test Bounty");
 
     let bounty_id = client.create_bounty(
         &owner,
@@ -494,24 +678,24 @@ fn test_update_and_delete_bounty() {
         &distribution,
         &submission_deadline,
         &judging_deadline,
-        &description,
+        &title,
     );
 
     // Test 1: Try to update with non-owner (should fail)
     let result = client.try_update_bounty(
         &not_owner,
         &bounty_id,
-        &Some(String::from_str(&env, "New Description")),
+        &Some(String::from_str(&env, "New Title")),
         &vec![&env],
         &None,
     );
     assert_eq!(result, Err(Ok(Error::OnlyOwner)));
 
-    // Test 2: Update description
+    // Test 2: Update title
     client.update_bounty(
         &owner,
         &bounty_id,
-        &Some(String::from_str(&env, "Updated Description")),
+        &Some(String::from_str(&env, "Updated Title")),
         &vec![&env],
         &None,
     );
@@ -519,15 +703,12 @@ fn test_update_and_delete_bounty() {
         &env,
         &contract_id,
         &bounty_id,
-        &vec![&env, Symbol::new(&env, "description")],
+        &vec![&env, Symbol::new(&env, "title")],
     );
 
     // Verify update
     let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(
-        bounty.description,
-        String::from_str(&env, "Updated Description")
-    );
+    assert_eq!(bounty.title, String::from_str(&env, "Updated Title"));
 
     // Test 3: Update distribution
     let new_distribution = vec![&env, (1, 70), (2, 30)];
@@ -585,7 +766,7 @@ fn test_update_and_delete_bounty() {
         &distribution,
         &submission_deadline,
         &judging_deadline,
-        &description,
+        &title,
     );
 
     // Get initial owner balance

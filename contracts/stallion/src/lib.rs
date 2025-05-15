@@ -51,6 +51,94 @@ impl StallionContract {
         env.storage().persistent().get(&fee_account_key()).unwrap()
     }
 
+    pub fn get_bounties(env: Env) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut bounties = Vec::new(&env);
+        for id in 0..next_id {
+            bounties.push_back(id);
+        }
+        bounties
+    }
+
+    pub fn get_user_bounties(env: Env, user: Address) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut bounties = Vec::new(&env);
+        for id in 0..next_id {
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+            if bounty.submissions.contains_key(user.clone()) {
+                bounties.push_back(id);
+            }
+        }
+        bounties
+    }
+
+    pub fn get_user_bounties_count(env: Env, user: Address) -> u32 {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut count = 0;
+        for id in 0..next_id {
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+            if bounty.submissions.contains_key(user.clone()) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    pub fn get_owner_bounties(env: Env, owner: Address) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut bounties = Vec::new(&env);
+        for id in 0..next_id {
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+            if bounty.owner == owner {
+                bounties.push_back(id);
+            }
+        }
+        bounties
+    }
+
+    pub fn get_owner_bounties_count(env: Env, owner: Address) -> u32 {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut count = 0;
+        for id in 0..next_id {
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+            if bounty.owner == owner {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    pub fn get_bounties_by_token(env: Env, token: Address) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut bounties = Vec::new(&env);
+        for id in 0..next_id {
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+            if bounty.token == token {
+                bounties.push_back(id);
+            }
+        }
+        bounties
+    }
+
+    pub fn get_bounties_by_token_count(env: Env, token: Address) -> u32 {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut count = 0;
+        for id in 0..next_id {
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+            if bounty.token == token {
+                count += 1;
+            }
+        }
+        count
+    }
+
     pub fn get_active_bounties(env: Env) -> Vec<u32> {
         let storage = env.storage().persistent();
         let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
@@ -63,6 +151,38 @@ impl StallionContract {
             }
         }
         active
+    }
+
+    pub fn get_bounties_count(env: Env) -> u32 {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        next_id
+    }
+
+    pub fn get_bounties_by_status(env: Env, status: Status) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut bounties = Vec::new(&env);
+        for id in 0..next_id {
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+            if bounty.status == status {
+                bounties.push_back(id);
+            }
+        }
+        bounties
+    }
+
+    pub fn get_bounties_by_status_count(env: Env, status: Status) -> u32 {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let mut count = 0;
+        for id in 0..next_id {
+            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+            if bounty.status == status {
+                count += 1;
+            }
+        }
+        count
     }
 
     pub fn get_bounty(env: Env, bounty_id: u32) -> Result<Bounty, Error> {
@@ -131,7 +251,7 @@ impl StallionContract {
         distribution: Vec<(u32, u32)>,
         submission_deadline: u64,
         judging_deadline: u64,
-        description: String,
+        title: String,
     ) -> Result<u32, Error> {
         let storage = env.storage().persistent();
 
@@ -166,7 +286,7 @@ impl StallionContract {
             distribution: distribution_map,
             submission_deadline,
             judging_deadline,
-            description: description.clone(),
+            title: title.clone(),
             status: Status::Active,
             applicants: Vec::new(&env),
             submissions: Map::new(&env),
@@ -183,7 +303,7 @@ impl StallionContract {
         env: Env,
         owner: Address,
         bounty_id: u32,
-        new_description: Option<String>,
+        new_title: Option<String>,
         new_distribution: Vec<(u32, u32)>,
         new_submission_deadline: Option<u64>,
     ) -> Result<(), Error> {
@@ -229,14 +349,14 @@ impl StallionContract {
             bounty.submission_deadline = submission_deadline;
         }
 
-        // Update description if provided
-        if let Some(description) = &new_description {
-            bounty.description = description.clone();
+        // Update title if provided
+        if let Some(title) = &new_title {
+            bounty.title = title.clone();
         }
 
         let mut updated_fields: Vec<Symbol> = Vec::new(&env);
-        if new_description.is_some() {
-            updated_fields.push_back(Symbol::new(&env, "description"));
+        if new_title.is_some() {
+            updated_fields.push_back(Symbol::new(&env, "title"));
         }
         if !new_distribution.is_empty() {
             updated_fields.push_back(Symbol::new(&env, "distribution"));
@@ -315,6 +435,44 @@ impl StallionContract {
 
         Ok(())
     }
+    
+    // Update an existing submission before the deadline
+    pub fn update_submission(
+        env: Env,
+        applicant: Address,
+        bounty_id: u32,
+        new_submission_link: String,
+    ) -> Result<(), Error> {
+        applicant.require_auth();
+
+        let storage = env.storage().persistent();
+        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
+        let now = env.ledger().timestamp();
+        
+        // Check if bounty is active
+        if bounty.status != Status::Active {
+            return Err(Error::InactiveBounty);
+        }
+        
+        // Check if submission deadline has passed
+        if now > bounty.submission_deadline {
+            return Err(Error::BountyDeadlinePassed);
+        }
+        
+        // Check if the applicant has an existing submission
+        if !bounty.submissions.contains_key(applicant.clone()) {
+            return Err(Error::InternalError);
+        }
+        
+        // Update the submission
+        bounty.submissions.set(applicant.clone(), new_submission_link);
+        storage.set(&bounty_key(bounty_id), &bounty);
+        
+        // Emit an event for the update
+        Events::emit_submission_updated(&env, bounty_id, applicant);
+        
+        Ok(())
+    }
 
     // Select winners before judging deadline
     pub fn select_winners(
@@ -369,7 +527,7 @@ impl StallionContract {
         // Transfer platform fee to fee account instead of owner
         token_client.transfer(&env.current_contract_address(), &fee_account, &fee);
 
-        bounty.status = Status::WinnersSelected;
+        bounty.status = Status::Completed;
         bounty.winners = winners.clone();
         storage.set(&bounty_key(bounty_id), &bounty);
         Events::emit_winners_selected(&env, bounty_id, winners);
@@ -406,7 +564,7 @@ impl StallionContract {
         }
         token_client.transfer(&env.current_contract_address(), &fee_account, &fee);
 
-        bounty.status = Status::WinnersSelected;
+        bounty.status = Status::Completed;
         storage.set(&bounty_key(bounty_id), &bounty);
         Events::emit_auto_distributed(&env, bounty_id);
 

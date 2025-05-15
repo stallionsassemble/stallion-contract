@@ -24,20 +24,20 @@ pub enum Error {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Status {
     Active,
-    Judging,
-    WinnersSelected,
+    InReview,
+    Completed,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Bounty {
     pub owner: Address,
+    pub title: String,
     pub reward: i128,
     pub token: Address,
     pub distribution: Map<u32, u32>,
     pub submission_deadline: u64,
     pub judging_deadline: u64,
-    pub description: String,
     pub status: Status,
     pub applicants: Vec<Address>,
     pub submissions: Map<Address, String>,
