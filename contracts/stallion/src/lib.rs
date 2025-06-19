@@ -10,8 +10,8 @@ mod utils;
 
 use events::Events;
 use storage::{admin_key, bounty_key, fee_account_key, next_id_key};
-use types::{Bounty, Error, Status};
-use utils::{calculate_fee, get_token_client, is_zero_address, validate_distribution_sum};
+use crate::types::*;
+use crate::utils::{calculate_fee, get_token_client, validate_distribution_sum, is_zero_address, get_token_decimals, adjust_for_decimals};
 
 contractmeta!(key = "Version", val = "0.1.0");
 contractmeta!(
@@ -369,14 +369,21 @@ impl StallionContract {
         // Transfer reward to contract
         owner.require_auth();
         let token_client = get_token_client(&env, token.clone());
-        token_client.transfer(&owner, &env.current_contract_address(), &reward);
+
+        // Get token decimals and adjust reward amount
+        let decimals = get_token_decimals(&env, &token);
+        let adjusted_reward = adjust_for_decimals(reward, decimals);
+
+        // Transfer the adjusted amount to the contract
+        token_client.transfer(&owner, &env.current_contract_address(), &adjusted_reward);
 
         // Assign new bounty ID
         let id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let next = id + 1;
         storage.set(&next_id_key(), &next);
 
-        // Initialize bounty
+        // Initialize bounty - store the original reward amount (not adjusted for decimals)
+        // This way when displaying, we show the user-friendly amount
         let mut distribution_map = Map::new(&env);
         for (rank, percent) in distribution.iter() {
             distribution_map.set(rank, percent);
@@ -384,7 +391,7 @@ impl StallionContract {
         let bounty = Bounty {
             owner: owner.clone(),
             token: token.clone(),
-            reward,
+            reward,  // Store the original reward amount for display purposes
             distribution: distribution_map,
             submission_deadline,
             judging_deadline,
@@ -484,6 +491,7 @@ impl StallionContract {
         owner.require_auth();
 
         let storage = env.storage().persistent();
+
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
         if bounty.is_none() {
             return Err(Error::BountyNotFound);
@@ -491,28 +499,33 @@ impl StallionContract {
 
         let bounty = bounty.unwrap();
 
-        // Only the bounty owner can delete the bounty
         if bounty.owner != owner {
             return Err(Error::OnlyOwner);
         }
 
-        // Can't delete if there are submissions
-        if !bounty.submissions.is_empty() {
+        // Check if there are any submissions
+        if bounty.submissions.len() > 0 {
             return Err(Error::BountyHasSubmissions);
         }
 
-        // Remove the bounty from storage
-        storage.remove(&bounty_key(bounty_id));
-
-        // Transfer remaining funds back to the owner
-        let token_client = get_token_client(&env, bounty.token);
+        // Get token decimals for adjustment
+        let token_client = get_token_client(&env, bounty.token.clone());
+        let decimals = get_token_decimals(&env, &bounty.token);
+        
+        // Adjust reward amount according to token decimals
+        let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
+        
+        // Return funds to owner
         token_client.transfer(
             &env.current_contract_address(),
-            &bounty.owner,
-            &bounty.reward,
+            &owner,
+            &adjusted_reward,
         );
 
+        // Remove bounty
+        storage.remove(&bounty_key(bounty_id));
         Events::emit_bounty_deleted(&env, bounty_id);
+
         Ok(())
     }
 
@@ -629,10 +642,13 @@ impl StallionContract {
             return Err(Error::NotEnoughWinners);
         }
 
-        // Distribute rewards
+        // Get token decimals to adjust amounts for transfers
+        let token_client = get_token_client(&env, bounty.token.clone());
+        let decimals = get_token_decimals(&env, &bounty.token);
+        
+        // Use the original reward amount (user-friendly) for calculations
         let fee = calculate_fee(bounty.reward);
         let net = bounty.reward - fee;
-        let token_client = get_token_client(&env, bounty.token.clone());
         let fee_account = Self::get_fee_account(&env);
 
         // Calculate how many winners we can actually reward
@@ -645,19 +661,26 @@ impl StallionContract {
             if let Some(pct) = bounty.distribution.get(rank) {
                 let amount = net * (pct as i128) / 100;
                 let winner = winners.get(i as u32).unwrap();
-                token_client.transfer(&env.current_contract_address(), &winner, &amount);
-                distributed += amount;
+                
+                // Adjust amount for token decimals before transfer
+                let adjusted_amount = adjust_for_decimals(amount, decimals);
+                token_client.transfer(&env.current_contract_address(), &winner, &adjusted_amount);
+                
+                distributed += amount; // Track using original amount for calculation purposes
             }
         }
 
         // Return remaining funds to owner (if any)
         let remaining = net - distributed;
         if remaining > 0 {
-            token_client.transfer(&env.current_contract_address(), &bounty.owner, &remaining);
+            // Adjust remaining amount for token decimals
+            let adjusted_remaining = adjust_for_decimals(remaining, decimals);
+            token_client.transfer(&env.current_contract_address(), &bounty.owner, &adjusted_remaining);
         }
 
-        // Transfer platform fee to fee account instead of owner
-        token_client.transfer(&env.current_contract_address(), &fee_account, &fee);
+        // Transfer platform fee to fee account
+        let adjusted_fee = adjust_for_decimals(fee, decimals);
+        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
         bounty.status = Status::Completed;
         bounty.winners = winners.clone();
@@ -682,26 +705,42 @@ impl StallionContract {
         if now <= bounty.judging_deadline || bounty.status != Status::Active {
             return Ok(());
         }
+        
+        // Get token decimals for adjustment
+        let token_client = get_token_client(&env, bounty.token.clone());
+        let decimals = get_token_decimals(&env, &bounty.token);
+        
         // auto-distribute equally to all applicants
         let fee = calculate_fee(bounty.reward);
         let net = bounty.reward - fee;
         let count = bounty.applicants.len() as i128;
+        
         if count == 0 {
-            let token_client = get_token_client(&env, bounty.token.clone());
+            // Return full reward to owner if no applicants
+            let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
             token_client.transfer(
                 &env.current_contract_address(),
                 &bounty.owner,
-                &bounty.reward,
+                &adjusted_reward,
             );
             return Ok(());
         }
+        
+        // Calculate share for each applicant
         let share = net / count;
-        let token_client = get_token_client(&env, bounty.token.clone());
         let fee_account = Self::get_fee_account(&env);
+        
+        // Adjust share amount for token decimals
+        let adjusted_share = adjust_for_decimals(share, decimals);
+        
+        // Distribute to each applicant
         for applicant in bounty.applicants.iter() {
-            token_client.transfer(&env.current_contract_address(), &applicant, &share);
+            token_client.transfer(&env.current_contract_address(), &applicant, &adjusted_share);
         }
-        token_client.transfer(&env.current_contract_address(), &fee_account, &fee);
+        
+        // Transfer fee to fee account
+        let adjusted_fee = adjust_for_decimals(fee, decimals);
+        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
         bounty.status = Status::Completed;
         storage.set(&bounty_key(bounty_id), &bounty);

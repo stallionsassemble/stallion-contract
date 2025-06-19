@@ -2,7 +2,10 @@
 
 extern crate std;
 
-use crate::{Error, StallionContract, StallionContractClient, Status};
+use crate::{
+    Error, StallionContract, StallionContractClient, Status,
+    utils::{adjust_for_decimals, get_token_decimals},
+};
 use soroban_sdk::{
     Address, Env, FromVal, IntoVal, String, Symbol, Vec,
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _, Ledger},
@@ -16,6 +19,7 @@ fn create_token_contract(e: &Env) -> (TokenClient, Address) {
     let issuer = Address::generate(&e);
     let distributor = Address::generate(&e);
 
+    // Create token contract with 7 decimals (standard for Stellar tokens)
     let sac = e.register_stellar_asset_contract_v2(issuer.clone());
     let token_address = sac.address();
 
@@ -24,17 +28,13 @@ fn create_token_contract(e: &Env) -> (TokenClient, Address) {
     // client for Stellar Asset Contract functions
     let token_sac = TokenAdminClient::new(&e, &token_address);
 
-    // note that you need to account for the difference between the minimal
-    // unit and the unit itself when working with amounts.
-    // E.g. to mint 1 TOKEN, we need to use 1*1e7 in the mint function.
-    let genesis_amount: i128 = 1_000_000_000 * 1_000_000_000;
+    // note that we're explicitly working with a token that has 7 decimals
+    // E.g. to mint 1 TOKEN, we need to use 1*10^7 in the mint function.
+    let _decimals: u32 = 7; // Used implicitly through multiplier
+    let genesis_amount: i128 = adjust_for_decimals(1_000_000_000, _decimals); // 1B tokens
 
     // Mint initial supply
     token_sac.mint(&distributor, &genesis_amount);
-
-    // Make issuer AuthRequired and AuthRevocable
-    // sac.issuer().set_flag(IssuerFlags::RevocableFlag);
-    // sac.issuer().set_flag(IssuerFlags::RequiredFlag);
 
     (token, distributor)
 }
@@ -185,14 +185,23 @@ fn test_bounty_creation() {
     let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    // Define token amount with decimals - 1000 tokens with 7 decimals
+    let user_friendly_amount = 1000; // Original token amount for contract input
+    let token_amount = adjust_for_decimals(
+        user_friendly_amount,
+        get_token_decimals(&env, &token.address),
+    );
+
     let owner = Address::generate(&env);
-    token.transfer(&distributor, &owner, &1000);
+    // Transfer the amount adjusted for decimals
+    token.transfer(&distributor, &owner, &token_amount);
 
     // Test valid bounty creation
+    // Note: We pass user_friendly_amount, but internally it will be adjusted for token decimals
     let bounty_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 60), (2, 40)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -201,12 +210,14 @@ fn test_bounty_creation() {
     verify_bounty_created_event(&env, &_contract_id, &bounty_id);
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, Status::Active);
+    // Verify that the stored reward is the user-friendly amount
+    assert_eq!(bounty.reward, user_friendly_amount);
 
     // Test invalid distribution
     let result = client.try_create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 60), (2, 30)], // Only adds to 90%
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -218,7 +229,7 @@ fn test_bounty_creation() {
     let result = client.try_create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 60), (2, 40)],
         &(env.ledger().timestamp() + 2000),
         &(env.ledger().timestamp() + 1000), // Judging before submission
@@ -233,15 +244,21 @@ fn test_bounty_submissions() {
     let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let user_friendly_amount = 1000; // Original token amount for contract input
+    let token_amount = adjust_for_decimals(
+        user_friendly_amount,
+        get_token_decimals(&env, &token.address),
+    );
+
     let owner = Address::generate(&env);
     let applicant = Address::generate(&env);
-    token.transfer(&distributor, &owner, &1000);
+    token.transfer(&distributor, &owner, &token_amount);
 
     // Create bounty
     let bounty_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 100)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -273,16 +290,22 @@ fn test_winner_selection() {
     let (client, token, distributor, fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let user_friendly_amount = 1000; // Original token amount for contract input
+    let token_amount = adjust_for_decimals(
+        user_friendly_amount,
+        get_token_decimals(&env, &token.address),
+    );
+
     let owner = Address::generate(&env);
     let applicant1 = Address::generate(&env);
     let applicant2 = Address::generate(&env);
-    token.transfer(&distributor, &owner, &1000);
+    token.transfer(&distributor, &owner, &token_amount);
 
     // Create bounty with two winners
     let bounty_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 60), (2, 40)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -300,10 +323,16 @@ fn test_winner_selection() {
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, Status::Completed);
 
+    // Calculate expected balances with 7 decimals
+    // 1% fee = 10 tokens = 10 * 10^7 = 100_000_000 units
+    // Net reward = 990 tokens = 990 * 10^7 = 9_900_000_000 units
+    // Applicant1 gets 60% of 990 = 594 tokens = 594 * 10^7 = 5_940_000_000 units
+    // Applicant2 gets 40% of 990 = 396 tokens = 396 * 10^7 = 3_960_000_000 units
+
     // Verify token distribution includes fee going to fee_account
-    assert_eq!(token.balance(&applicant1), 594); // 60% of 990 (after 1% fee)
-    assert_eq!(token.balance(&applicant2), 396); // 40% of 990 (after 1% fee)
-    assert_eq!(token.balance(&fee_account), 10); // 1% fee goes to fee account
+    assert_eq!(token.balance(&applicant1), 594 * 10_000_000); // 60% of 990 (after 1% fee)
+    assert_eq!(token.balance(&applicant2), 396 * 10_000_000); // 40% of 990 (after 1% fee)
+    assert_eq!(token.balance(&fee_account), 10 * 10_000_000); // 1% fee goes to fee account
 }
 
 #[test]
@@ -312,16 +341,22 @@ fn test_auto_distribution() {
     let (client, token, distributor, fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let user_friendly_amount = 1000; // Original token amount for contract input
+    let token_amount = adjust_for_decimals(
+        user_friendly_amount,
+        get_token_decimals(&env, &token.address),
+    );
+
     let owner = Address::generate(&env);
     let applicant1 = Address::generate(&env);
     let applicant2 = Address::generate(&env);
-    token.transfer(&distributor, &owner, &1000);
+    token.transfer(&distributor, &owner, &token_amount);
 
     // Create bounty
     let bounty_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 100)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -338,10 +373,15 @@ fn test_auto_distribution() {
     // Trigger auto-distribution
     client.check_judging(&bounty_id);
 
-    // Verify fee goes to fee_account
-    assert_eq!(token.balance(&applicant1), 495);
-    assert_eq!(token.balance(&applicant2), 495);
-    assert_eq!(token.balance(&fee_account), 10);
+    // Calculate expected balances with 7 decimals
+    // 1% fee = 10 tokens = 10 * 10^7 = 100_000_000 units
+    // Net reward = 990 tokens = 990 * 10^7 = 9_900_000_000 units
+    // Split equally between two applicants = 495 tokens each = 495 * 10^7 = 4_950_000_000 units
+
+    // Verify token distribution
+    assert_eq!(token.balance(&applicant1), 495 * 10_000_000);
+    assert_eq!(token.balance(&applicant2), 495 * 10_000_000);
+    assert_eq!(token.balance(&fee_account), 10 * 10_000_000);
 }
 
 #[test]
@@ -350,14 +390,17 @@ fn test_get_active_bounties() {
     let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let user_friendly_amount = 1000; // Amount per bounty in user-friendly format
+    let token_amount = adjust_for_decimals(5000, get_token_decimals(&env, &token.address));
+
     let owner = Address::generate(&env);
-    token.transfer(&distributor, &owner, &3000);
+    token.transfer(&distributor, &owner, &token_amount);
 
     // Create first active bounty
     let bounty1_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 100)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -368,7 +411,7 @@ fn test_get_active_bounties() {
     let bounty2_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 100)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -379,7 +422,7 @@ fn test_get_active_bounties() {
     let bounty3_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount,
         &vec![&env, (1, 100)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -407,27 +450,55 @@ fn test_getters() {
     let owner1 = Address::generate(&env);
     let owner2 = Address::generate(&env);
 
-    // Transfer tokens to owners
-    token.transfer(&distributor, &owner1, &2000);
-    token.transfer(&distributor, &owner2, &1000);
+    // Transfer tokens to owners (with decimals)
+    token.transfer(
+        &distributor,
+        &owner1,
+        &adjust_for_decimals(2000, get_token_decimals(&env, &token.address)),
+    );
+    token.transfer(
+        &distributor,
+        &owner2,
+        &adjust_for_decimals(1000, get_token_decimals(&env, &token.address)),
+    );
 
     // Create second token contract and get its admin client to mint tokens
     let (token2, token2_distributor) = create_token_contract(&env);
 
-    // Mint tokens to owners for both tokens
-    token.transfer(&distributor, &owner1, &2000);
-    token.transfer(&distributor, &owner2, &1000);
+    // Mint additional tokens to owners for both tokens (with decimals)
+    token.transfer(
+        &distributor,
+        &owner1,
+        &adjust_for_decimals(2000, get_token_decimals(&env, &token.address)),
+    );
+    token.transfer(
+        &distributor,
+        &owner2,
+        &adjust_for_decimals(1000, get_token_decimals(&env, &token.address)),
+    );
 
-    // Mint tokens for token2
+    // Mint tokens for token2 (with decimals)
     let token2_admin = TokenAdminClient::new(&env, &token2.address);
-    token2_admin.mint(&token2_distributor, &10000);
-    token2.transfer(&token2_distributor, &owner1, &1000);
+    token2_admin.mint(
+        &token2_distributor,
+        &adjust_for_decimals(10000, get_token_decimals(&env, &token2.address)),
+    );
+    token2.transfer(
+        &token2_distributor,
+        &owner1,
+        &adjust_for_decimals(1000, get_token_decimals(&env, &token2.address)),
+    );
+
+    // Define user-friendly amounts for bounties
+    let bounty1_amount = 1000;
+    let bounty2_amount = 500;
+    let bounty3_amount = 750;
 
     // Bounty 1: Owner1, Token1
     let bounty1_id = client.create_bounty(
         &owner1,
         &token.address,
-        &1000,
+        &bounty1_amount, // User-friendly amount, contract handles decimal adjustment
         &vec![&env, (1, 60), (2, 40)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -438,7 +509,7 @@ fn test_getters() {
     let bounty2_id = client.create_bounty(
         &owner1,
         &token2.address,
-        &500,
+        &bounty2_amount, // User-friendly amount, contract handles decimal adjustment
         &vec![&env, (1, 100)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -449,7 +520,7 @@ fn test_getters() {
     let bounty3_id = client.create_bounty(
         &owner2,
         &token.address,
-        &750,
+        &bounty3_amount, // User-friendly amount, contract handles decimal adjustment
         &vec![&env, (1, 50), (2, 30), (3, 20)],
         &(env.ledger().timestamp() + 1000),
         &(env.ledger().timestamp() + 2000),
@@ -563,19 +634,22 @@ fn test_update_submission() {
     let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let bounty_amount = 1000;
+    let transfer_amount = adjust_for_decimals(2000, get_token_decimals(&env, &token.address));
+
     // Setup test data
     let owner = Address::generate(&env);
     let applicant1 = Address::generate(&env);
     let applicant2 = Address::generate(&env);
 
-    // Transfer tokens to owner
-    token.transfer(&distributor, &owner, &2000);
+    // Transfer tokens to owner (with decimals)
+    token.transfer(&distributor, &owner, &transfer_amount);
 
     // Create a bounty
     let bounty_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &bounty_amount,
         &vec![&env, (1, 100)],
         &(env.ledger().timestamp() + 1000), // submission deadline
         &(env.ledger().timestamp() + 2000), // judging deadline
@@ -661,9 +735,17 @@ fn test_update_and_delete_bounty() {
     let owner = Address::generate(&env);
     let not_owner = Address::generate(&env);
 
-    // Fund the owner with some tokens
+    // Fund the owner with some tokens - ensure enough for our tests
     let token_client = TokenClient::new(&env, &token.address);
-    token_client.transfer(&distributor, &owner, &1_000_000_000);
+    token_client.transfer(
+        &distributor,
+        &owner,
+        &adjust_for_decimals(2000, get_token_decimals(&env, &token.address)),
+    );
+
+    // Define user-friendly amounts for testing
+    let user_friendly_amount1 = 1000;
+    let user_friendly_amount2 = 500;
 
     // Create a bounty
     let distribution = vec![&env, (1, 60), (2, 40)];
@@ -674,7 +756,7 @@ fn test_update_and_delete_bounty() {
     let bounty_id = client.create_bounty(
         &owner,
         &token.address,
-        &1000,
+        &user_friendly_amount1, // 1000 tokens in user-friendly format
         &distribution,
         &submission_deadline,
         &judging_deadline,
@@ -762,7 +844,7 @@ fn test_update_and_delete_bounty() {
     let bounty_id2 = client.create_bounty(
         &owner,
         &token.address,
-        &500,
+        &user_friendly_amount2, // 500 tokens in user-friendly format
         &distribution,
         &submission_deadline,
         &judging_deadline,
@@ -780,9 +862,16 @@ fn test_update_and_delete_bounty() {
     let result = client.try_get_bounty(&bounty_id2);
     assert!(result.is_err());
 
-    // Verify funds were returned to owner
+    // Verify funds were returned to owner - the full amount with decimals
     let final_balance = token_client.balance(&owner);
-    assert_eq!(final_balance, initial_balance + 500);
+    assert_eq!(
+        final_balance,
+        initial_balance
+            + adjust_for_decimals(
+                user_friendly_amount2,
+                get_token_decimals(&env, &token.address)
+            )
+    );
 }
 
 #[test]
