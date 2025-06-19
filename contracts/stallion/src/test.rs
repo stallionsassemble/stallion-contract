@@ -531,6 +531,10 @@ fn test_getters() {
         String::from_str(&env, "link3")
     );
 
+    // Test get submission
+    let submission = client.get_submission(&bounty1_id, &applicant1);
+    assert_eq!(submission, String::from_str(&env, "link1"));
+
     // Test winners getter
     let winners = vec![&env, applicant1.clone(), applicant2.clone()];
     client.select_winners(&owner1, &bounty1_id, &winners);

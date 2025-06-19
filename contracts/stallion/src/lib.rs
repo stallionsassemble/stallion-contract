@@ -257,6 +257,22 @@ impl StallionContract {
         Ok(bounty)
     }
 
+    pub fn get_submission(env: Env, bounty_id: u32, user: Address) -> Result<String, Error> {
+        let storage = env.storage().persistent();
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let bounty = bounty.unwrap();
+        let submission = bounty.submissions.get(user);
+        if submission.is_none() {
+            return Err(Error::SubmissionNotFound);
+        }
+
+        Ok(submission.unwrap())
+    }
+
     pub fn get_bounty_submissions(env: Env, bounty_id: u32) -> Result<Map<Address, String>, Error> {
         let storage = env.storage().persistent();
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
