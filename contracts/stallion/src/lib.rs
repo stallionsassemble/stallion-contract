@@ -53,9 +53,14 @@ impl StallionContract {
 
     pub fn get_bounties(env: Env) -> Vec<u32> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut bounties = Vec::new(&env);
-        for id in 0..next_id {
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
             bounties.push_back(id);
         }
         bounties
@@ -63,10 +68,15 @@ impl StallionContract {
 
     pub fn get_user_bounties(env: Env, user: Address) -> Vec<u32> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut bounties = Vec::new(&env);
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.submissions.contains_key(user.clone()) {
                 bounties.push_back(id);
             }
@@ -76,10 +86,15 @@ impl StallionContract {
 
     pub fn get_user_bounties_count(env: Env, user: Address) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut count = 0;
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.submissions.contains_key(user.clone()) {
                 count += 1;
             }
@@ -89,10 +104,15 @@ impl StallionContract {
 
     pub fn get_owner_bounties(env: Env, owner: Address) -> Vec<u32> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut bounties = Vec::new(&env);
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.owner == owner {
                 bounties.push_back(id);
             }
@@ -102,10 +122,15 @@ impl StallionContract {
 
     pub fn get_owner_bounties_count(env: Env, owner: Address) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut count = 0;
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.owner == owner {
                 count += 1;
             }
@@ -115,10 +140,15 @@ impl StallionContract {
 
     pub fn get_bounties_by_token(env: Env, token: Address) -> Vec<u32> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut bounties = Vec::new(&env);
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.token == token {
                 bounties.push_back(id);
             }
@@ -128,10 +158,15 @@ impl StallionContract {
 
     pub fn get_bounties_by_token_count(env: Env, token: Address) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut count = 0;
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.token == token {
                 count += 1;
             }
@@ -141,11 +176,16 @@ impl StallionContract {
 
     pub fn get_active_bounties(env: Env) -> Vec<u32> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut active = Vec::new(&env);
 
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.status == Status::Active {
                 active.push_back(id);
             }
@@ -155,16 +195,32 @@ impl StallionContract {
 
     pub fn get_bounties_count(env: Env) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
-        next_id
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+
+        let mut count = 0;
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            count += 1;
+        }
+
+        count
     }
 
     pub fn get_bounties_by_status(env: Env, status: Status) -> Vec<u32> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut bounties = Vec::new(&env);
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.status == status {
                 bounties.push_back(id);
             }
@@ -174,10 +230,15 @@ impl StallionContract {
 
     pub fn get_bounties_by_status_count(env: Env, status: Status) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let mut count = 0;
-        for id in 0..next_id {
-            let bounty: Bounty = storage.get(&bounty_key(id)).unwrap();
+        for id in 1..next_id {
+            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
+            if bounty.is_none() {
+                continue;
+            }
+
+            let bounty = bounty.unwrap();
             if bounty.status == status {
                 count += 1;
             }
@@ -187,32 +248,57 @@ impl StallionContract {
 
     pub fn get_bounty(env: Env, bounty_id: u32) -> Result<Bounty, Error> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let bounty = bounty.unwrap();
         Ok(bounty)
     }
 
-    pub fn get_bounty_submissions(env: Env, bounty_id: u32) -> Map<Address, String> {
+    pub fn get_bounty_submissions(env: Env, bounty_id: u32) -> Result<Map<Address, String>, Error> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
-        bounty.submissions
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let bounty = bounty.unwrap();
+        Ok(bounty.submissions)
     }
 
-    pub fn get_bounty_applicants(env: Env, bounty_id: u32) -> Vec<Address> {
+    pub fn get_bounty_applicants(env: Env, bounty_id: u32) -> Result<Vec<Address>, Error> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
-        bounty.applicants
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let bounty = bounty.unwrap();
+        Ok(bounty.applicants)
     }
 
-    pub fn get_bounty_winners(env: Env, bounty_id: u32) -> Vec<Address> {
+    pub fn get_bounty_winners(env: Env, bounty_id: u32) -> Result<Vec<Address>, Error> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
-        bounty.winners
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let bounty = bounty.unwrap();
+        Ok(bounty.winners)
     }
 
-    pub fn get_bounty_status(env: Env, bounty_id: u32) -> Status {
+    pub fn get_bounty_status(env: Env, bounty_id: u32) -> Result<Status, Error> {
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
-        bounty.status
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let bounty = bounty.unwrap();
+        Ok(bounty.status)
     }
 
     pub fn update_admin(env: Env, new_admin: Address) -> Result<Address, Error> {
@@ -270,7 +356,7 @@ impl StallionContract {
         token_client.transfer(&owner, &env.current_contract_address(), &reward);
 
         // Assign new bounty ID
-        let id: u32 = storage.get(&next_id_key()).unwrap_or(0);
+        let id: u32 = storage.get(&next_id_key()).unwrap_or(1);
         let next = id + 1;
         storage.set(&next_id_key(), &next);
 
@@ -310,9 +396,14 @@ impl StallionContract {
         owner.require_auth();
 
         let storage = env.storage().persistent();
-        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
 
         // Only the bounty owner can update the bounty
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let mut bounty = bounty.unwrap();
         if bounty.owner != owner {
             return Err(Error::OnlyOwner);
         }
@@ -377,7 +468,12 @@ impl StallionContract {
         owner.require_auth();
 
         let storage = env.storage().persistent();
-        let bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let bounty = bounty.unwrap();
 
         // Only the bounty owner can delete the bounty
         if bounty.owner != owner {
@@ -414,7 +510,12 @@ impl StallionContract {
         applicant.require_auth();
 
         let storage = env.storage().persistent();
-        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let mut bounty = bounty.unwrap();
         let now = env.ledger().timestamp();
         if bounty.status != Status::Active {
             return Err(Error::InactiveBounty);
@@ -435,7 +536,7 @@ impl StallionContract {
 
         Ok(())
     }
-    
+
     // Update an existing submission before the deadline
     pub fn update_submission(
         env: Env,
@@ -446,31 +547,39 @@ impl StallionContract {
         applicant.require_auth();
 
         let storage = env.storage().persistent();
-        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
+
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+        let mut bounty = bounty.unwrap();
+
         let now = env.ledger().timestamp();
-        
+
         // Check if bounty is active
         if bounty.status != Status::Active {
             return Err(Error::InactiveBounty);
         }
-        
+
         // Check if submission deadline has passed
         if now > bounty.submission_deadline {
             return Err(Error::BountyDeadlinePassed);
         }
-        
+
         // Check if the applicant has an existing submission
         if !bounty.submissions.contains_key(applicant.clone()) {
-            return Err(Error::InternalError);
+            return Err(Error::SubmissionNotFound);
         }
-        
+
         // Update the submission
-        bounty.submissions.set(applicant.clone(), new_submission_link);
+        bounty
+            .submissions
+            .set(applicant.clone(), new_submission_link);
         storage.set(&bounty_key(bounty_id), &bounty);
-        
+
         // Emit an event for the update
         Events::emit_submission_updated(&env, bounty_id, applicant);
-        
+
         Ok(())
     }
 
@@ -484,7 +593,14 @@ impl StallionContract {
         owner.require_auth();
 
         let storage = env.storage().persistent();
-        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
+
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let mut bounty = bounty.unwrap();
+
         if bounty.owner != owner {
             return Err(Error::OnlyOwner);
         }
@@ -538,7 +654,14 @@ impl StallionContract {
     // Check and auto-distribute if judging deadline passed
     pub fn check_judging(env: Env, bounty_id: u32) -> Result<(), Error> {
         let storage = env.storage().persistent();
-        let mut bounty: Bounty = storage.get(&bounty_key(bounty_id)).unwrap();
+
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let mut bounty = bounty.unwrap();
+
         let now = env.ledger().timestamp();
         if now <= bounty.judging_deadline || bounty.status != Status::Active {
             return Ok(());

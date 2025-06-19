@@ -530,12 +530,6 @@ fn test_getters() {
         submissions.get(applicant2.clone()).unwrap(),
         String::from_str(&env, "link3")
     );
-    
-    // Save the current ledger time to restore it later
-    let original_timestamp = env.ledger().timestamp();
-    
-    // Note: Moved submission update tests to a separate test function
-    // to avoid modifying the shared state that other tests depend on
 
     // Test winners getter
     let winners = vec![&env, applicant1.clone(), applicant2.clone()];
@@ -581,20 +575,16 @@ fn test_update_submission() {
         &vec![&env, (1, 100)],
         &(env.ledger().timestamp() + 1000), // submission deadline
         &(env.ledger().timestamp() + 2000), // judging deadline
-        &String::from_str(&env, "Test Bounty")
+        &String::from_str(&env, "Test Bounty"),
     );
 
     // Make some submissions
     client.apply_to_bounty(
         &applicant1,
         &bounty_id,
-        &String::from_str(&env, "initial_link1")
+        &String::from_str(&env, "initial_link1"),
     );
-    client.apply_to_bounty(
-        &applicant2,
-        &bounty_id,
-        &String::from_str(&env, "link2")
-    );
+    client.apply_to_bounty(&applicant2, &bounty_id, &String::from_str(&env, "link2"));
 
     // Verify initial state
     let initial_submissions = client.get_bounty_submissions(&bounty_id);
@@ -611,7 +601,7 @@ fn test_update_submission() {
     client.update_submission(
         &applicant1,
         &bounty_id,
-        &String::from_str(&env, "updated_link1")
+        &String::from_str(&env, "updated_link1"),
     );
 
     // Verify the update
@@ -631,25 +621,31 @@ fn test_update_submission() {
         client.update_submission(
             &non_applicant,
             &bounty_id,
-            &String::from_str(&env, "should_fail")
+            &String::from_str(&env, "should_fail"),
         );
     }));
-    assert!(result.is_err(), "Should not be able to update a non-existent submission");
+    assert!(
+        result.is_err(),
+        "Should not be able to update a non-existent submission"
+    );
 
     // Test updating after deadline (should fail with BountyDeadlinePassed)
     let bounty = client.get_bounty(&bounty_id);
     env.ledger().with_mut(|li| {
         li.timestamp = bounty.submission_deadline + 1;
     });
-    
+
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.update_submission(
             &applicant1,
             &bounty_id,
-            &String::from_str(&env, "should_fail_due_to_deadline")
+            &String::from_str(&env, "should_fail_due_to_deadline"),
         );
     }));
-    assert!(result.is_err(), "Should not be able to update submission after deadline");
+    assert!(
+        result.is_err(),
+        "Should not be able to update submission after deadline"
+    );
 }
 
 #[test]
