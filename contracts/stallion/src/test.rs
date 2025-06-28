@@ -911,6 +911,7 @@ fn test_admin_functions() {
     // Test update fee account with zero address (should fail)
     let result = client.try_update_fee_account(&zero_address);
     assert!(result.is_err());
+    assert_eq!(result, Err(Ok(Error::FeeAccountCannotBeZero)));
 
     // Test update fee account with valid address
     client.update_fee_account(&new_fee_account);
@@ -929,6 +930,11 @@ fn test_admin_functions() {
         )]
     );
     verify_fee_account_updated_event(&env, &contract_id, &new_fee_account);
+
+    // Test updating to the same fee account (should fail)
+    let result = client.try_update_fee_account(&new_fee_account);
+    assert!(result.is_err());
+    assert_eq!(result, Err(Ok(Error::SameFeeAccount)));
 
     // Clear previous mock auths
     env.set_auths(&[]);

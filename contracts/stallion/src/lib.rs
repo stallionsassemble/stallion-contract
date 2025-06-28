@@ -8,10 +8,13 @@ mod storage;
 mod types;
 mod utils;
 
+use crate::types::*;
+use crate::utils::{
+    adjust_for_decimals, calculate_fee, get_token_client, get_token_decimals, is_zero_address,
+    validate_distribution_sum,
+};
 use events::Events;
 use storage::{admin_key, bounty_key, fee_account_key, next_id_key};
-use crate::types::*;
-use crate::utils::{calculate_fee, get_token_client, validate_distribution_sum, is_zero_address, get_token_decimals, adjust_for_decimals};
 
 contractmeta!(key = "Version", val = "0.1.0");
 contractmeta!(
@@ -338,6 +341,12 @@ impl StallionContract {
             return Err(Error::FeeAccountCannotBeZero);
         }
 
+        // Check if the new fee account is the same as the current fee account
+        let current_fee_account = Self::get_fee_account(&env);
+        if current_fee_account == new_fee_account {
+            return Err(Error::SameFeeAccount);
+        }
+
         env.storage()
             .persistent()
             .set(&fee_account_key(), &new_fee_account);
@@ -374,7 +383,7 @@ impl StallionContract {
         let decimals = get_token_decimals(&env, &token);
         let adjusted_reward = adjust_for_decimals(reward, decimals);
 
-        // Transfer the adjusted amount to the contract
+        // Transfer the adjusted amount to the account
         token_client.transfer(&owner, &env.current_contract_address(), &adjusted_reward);
 
         // Assign new bounty ID
@@ -391,7 +400,7 @@ impl StallionContract {
         let bounty = Bounty {
             owner: owner.clone(),
             token: token.clone(),
-            reward,  // Store the original reward amount for display purposes
+            reward, // Store the original reward amount for display purposes
             distribution: distribution_map,
             submission_deadline,
             judging_deadline,
@@ -511,16 +520,12 @@ impl StallionContract {
         // Get token decimals for adjustment
         let token_client = get_token_client(&env, bounty.token.clone());
         let decimals = get_token_decimals(&env, &bounty.token);
-        
+
         // Adjust reward amount according to token decimals
         let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
-        
+
         // Return funds to owner
-        token_client.transfer(
-            &env.current_contract_address(),
-            &owner,
-            &adjusted_reward,
-        );
+        token_client.transfer(&env.current_contract_address(), &owner, &adjusted_reward);
 
         // Remove bounty
         storage.remove(&bounty_key(bounty_id));
@@ -645,7 +650,7 @@ impl StallionContract {
         // Get token decimals to adjust amounts for transfers
         let token_client = get_token_client(&env, bounty.token.clone());
         let decimals = get_token_decimals(&env, &bounty.token);
-        
+
         // Use the original reward amount (user-friendly) for calculations
         let fee = calculate_fee(bounty.reward);
         let net = bounty.reward - fee;
@@ -661,11 +666,11 @@ impl StallionContract {
             if let Some(pct) = bounty.distribution.get(rank) {
                 let amount = net * (pct as i128) / 100;
                 let winner = winners.get(i as u32).unwrap();
-                
+
                 // Adjust amount for token decimals before transfer
                 let adjusted_amount = adjust_for_decimals(amount, decimals);
                 token_client.transfer(&env.current_contract_address(), &winner, &adjusted_amount);
-                
+
                 distributed += amount; // Track using original amount for calculation purposes
             }
         }
@@ -675,7 +680,11 @@ impl StallionContract {
         if remaining > 0 {
             // Adjust remaining amount for token decimals
             let adjusted_remaining = adjust_for_decimals(remaining, decimals);
-            token_client.transfer(&env.current_contract_address(), &bounty.owner, &adjusted_remaining);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &bounty.owner,
+                &adjusted_remaining,
+            );
         }
 
         // Transfer platform fee to fee account
@@ -705,16 +714,16 @@ impl StallionContract {
         if now <= bounty.judging_deadline || bounty.status != Status::Active {
             return Ok(());
         }
-        
+
         // Get token decimals for adjustment
         let token_client = get_token_client(&env, bounty.token.clone());
         let decimals = get_token_decimals(&env, &bounty.token);
-        
+
         // auto-distribute equally to all applicants
         let fee = calculate_fee(bounty.reward);
         let net = bounty.reward - fee;
         let count = bounty.applicants.len() as i128;
-        
+
         if count == 0 {
             // Return full reward to owner if no applicants
             let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
@@ -725,19 +734,19 @@ impl StallionContract {
             );
             return Ok(());
         }
-        
+
         // Calculate share for each applicant
         let share = net / count;
         let fee_account = Self::get_fee_account(&env);
-        
+
         // Adjust share amount for token decimals
         let adjusted_share = adjust_for_decimals(share, decimals);
-        
+
         // Distribute to each applicant
         for applicant in bounty.applicants.iter() {
             token_client.transfer(&env.current_contract_address(), &applicant, &adjusted_share);
         }
-        
+
         // Transfer fee to fee account
         let adjusted_fee = adjust_for_decimals(fee, decimals);
         token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);

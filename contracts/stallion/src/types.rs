@@ -18,8 +18,9 @@ pub enum Error {
     NotAdmin = 11,
     AdminCannotBeZero = 12,
     FeeAccountCannotBeZero = 13,
-    BountyHasSubmissions = 14,
-    InvalidDeadlineUpdate = 15,
+    SameFeeAccount = 14,
+    BountyHasSubmissions = 15,
+    InvalidDeadlineUpdate = 16,
 }
 
 #[contracttype]
