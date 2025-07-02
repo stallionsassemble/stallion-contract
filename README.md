@@ -90,17 +90,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## 📄 License
 
 This project is licensed under the Boost Software License 1.0 - see the [LICENSE](LICENSE) file for details.
-
-stellar contract invoke \
---id CBEXRYEQIZMQDPVH3L5Q6EENMGTTX5PEFTVMPMLDGTW2E4QJ5GNXTTMX \
---source alice \
---network testnet \
--- \
- create_bounty \
- --owner=$(soroban keys public-key alice) \
- --token="CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU" \
- --reward=100000 \
- --distribution='[(1,50),(2,50)]' \
- --submission_deadline=1723867200 \
- --judging_deadline=1723953600 \
- --title="Test bounty"

@@ -21,6 +21,7 @@ pub enum Error {
     SameFeeAccount = 14,
     BountyHasSubmissions = 15,
     InvalidDeadlineUpdate = 16,
+    InvalidReward = 17,
 }
 
 #[contracttype]

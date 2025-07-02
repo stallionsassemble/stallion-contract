@@ -366,6 +366,10 @@ impl StallionContract {
     ) -> Result<u32, Error> {
         let storage = env.storage().persistent();
 
+        if reward <= 0 {
+            return Err(Error::InvalidReward);
+        }
+
         if !validate_distribution_sum(&distribution) {
             return Err(Error::DistributionMustSumTo100);
         }
