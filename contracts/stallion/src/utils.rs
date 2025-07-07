@@ -1,7 +1,7 @@
 use soroban_sdk::{Address, Env, String, Vec, token};
 
 // Constants
-pub const PLATFORM_FEE_PERCENT: u32 = 1;
+pub const PLATFORM_FEE_PERCENT: u32 = 5;
 
 pub fn calculate_fee(reward: i128) -> i128 {
     reward * PLATFORM_FEE_PERCENT as i128 / 100

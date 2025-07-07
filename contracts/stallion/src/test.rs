@@ -4,7 +4,7 @@ extern crate std;
 
 use crate::{
     Error, StallionContract, StallionContractClient, Status,
-    utils::{adjust_for_decimals, get_token_decimals},
+    utils::{self, adjust_for_decimals, get_token_decimals},
 };
 use soroban_sdk::{
     Address, Env, FromVal, IntoVal, String, Symbol, Vec,
@@ -323,16 +323,15 @@ fn test_winner_selection() {
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, Status::Completed);
 
-    // Calculate expected balances with 7 decimals
-    // 1% fee = 10 tokens = 10 * 10^7 = 100_000_000 units
-    // Net reward = 990 tokens = 990 * 10^7 = 9_900_000_000 units
-    // Applicant1 gets 60% of 990 = 594 tokens = 594 * 10^7 = 5_940_000_000 units
-    // Applicant2 gets 40% of 990 = 396 tokens = 396 * 10^7 = 3_960_000_000 units
+    let platform_fee = utils::calculate_fee(token_amount);
+    let net_reward = token_amount - platform_fee;
+    let applicant1_reward = (net_reward * 60) / 100;
+    let applicant2_reward = net_reward - applicant1_reward;
 
     // Verify token distribution includes fee going to fee_account
-    assert_eq!(token.balance(&applicant1), 594 * 10_000_000); // 60% of 990 (after 1% fee)
-    assert_eq!(token.balance(&applicant2), 396 * 10_000_000); // 40% of 990 (after 1% fee)
-    assert_eq!(token.balance(&fee_account), 10 * 10_000_000); // 1% fee goes to fee account
+    assert_eq!(token.balance(&applicant1), applicant1_reward); // 60% of 950 (after 5% fee)
+    assert_eq!(token.balance(&applicant2), applicant2_reward); // 40% of 950 (after 5% fee)
+    assert_eq!(token.balance(&fee_account), platform_fee); // 5% fee goes to fee account
 }
 
 #[test]
@@ -373,15 +372,14 @@ fn test_auto_distribution() {
     // Trigger auto-distribution
     client.check_judging(&bounty_id);
 
-    // Calculate expected balances with 7 decimals
-    // 1% fee = 10 tokens = 10 * 10^7 = 100_000_000 units
-    // Net reward = 990 tokens = 990 * 10^7 = 9_900_000_000 units
-    // Split equally between two applicants = 495 tokens each = 495 * 10^7 = 4_950_000_000 units
-
     // Verify token distribution
-    assert_eq!(token.balance(&applicant1), 495 * 10_000_000);
-    assert_eq!(token.balance(&applicant2), 495 * 10_000_000);
-    assert_eq!(token.balance(&fee_account), 10 * 10_000_000);
+    let platform_fee = utils::calculate_fee(token_amount);
+    let net_reward = token_amount - platform_fee;
+    let reward_per_applicant = net_reward / 2; // Net reward should be divided equally between both applicants
+
+    assert_eq!(token.balance(&applicant1), reward_per_applicant);
+    assert_eq!(token.balance(&applicant2), reward_per_applicant);
+    assert_eq!(token.balance(&fee_account), platform_fee);
 }
 
 #[test]
