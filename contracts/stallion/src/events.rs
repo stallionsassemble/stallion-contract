@@ -15,20 +15,8 @@ impl Events {
         Symbol::new(env, "bounty_deleted")
     }
 
-    fn submission_added_event(env: &Env) -> Symbol {
-        Symbol::new(env, "submission_added")
-    }
-    
-    fn submission_updated_event(env: &Env) -> Symbol {
-        Symbol::new(env, "submission_updated")
-    }
-
     fn winners_selected_event(env: &Env) -> Symbol {
         Symbol::new(env, "winners_selected")
-    }
-
-    fn auto_distributed_event(env: &Env) -> Symbol {
-        Symbol::new(env, "auto_distributed")
     }
 
     fn admin_updated_event(env: &Env) -> Symbol {
@@ -56,24 +44,9 @@ impl Events {
             .publish((Self::bounty_deleted_event(env),), bounty_id);
     }
 
-    pub fn emit_submission_added(env: &Env, bounty_id: u32, applicant: Address) {
-        env.events()
-            .publish((Self::submission_added_event(env),), (bounty_id, applicant));
-    }
-    
-    pub fn emit_submission_updated(env: &Env, bounty_id: u32, applicant: Address) {
-        env.events()
-            .publish((Self::submission_updated_event(env),), (bounty_id, applicant));
-    }
-
     pub fn emit_winners_selected(env: &Env, bounty_id: u32, winners: Vec<Address>) {
         env.events()
             .publish((Self::winners_selected_event(env),), (bounty_id, winners));
-    }
-
-    pub fn emit_auto_distributed(env: &Env, bounty_id: u32) {
-        env.events()
-            .publish((Self::auto_distributed_event(env),), bounty_id);
     }
 
     pub fn emit_admin_updated(env: &Env, new_admin: Address) {

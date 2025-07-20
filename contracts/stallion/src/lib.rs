@@ -69,42 +69,6 @@ impl StallionContract {
         bounties
     }
 
-    pub fn get_user_bounties(env: Env, user: Address) -> Vec<u32> {
-        let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
-        let mut bounties = Vec::new(&env);
-        for id in 1..next_id {
-            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
-            if bounty.is_none() {
-                continue;
-            }
-
-            let bounty = bounty.unwrap();
-            if bounty.submissions.contains_key(user.clone()) {
-                bounties.push_back(id);
-            }
-        }
-        bounties
-    }
-
-    pub fn get_user_bounties_count(env: Env, user: Address) -> u32 {
-        let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
-        let mut count = 0;
-        for id in 1..next_id {
-            let bounty: Option<Bounty> = storage.get(&bounty_key(id));
-            if bounty.is_none() {
-                continue;
-            }
-
-            let bounty = bounty.unwrap();
-            if bounty.submissions.contains_key(user.clone()) {
-                count += 1;
-            }
-        }
-        count
-    }
-
     pub fn get_owner_bounties(env: Env, owner: Address) -> Vec<u32> {
         let storage = env.storage().persistent();
         let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
@@ -260,44 +224,6 @@ impl StallionContract {
         Ok(bounty)
     }
 
-    pub fn get_submission(env: Env, bounty_id: u32, user: Address) -> Result<String, Error> {
-        let storage = env.storage().persistent();
-        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
-        if bounty.is_none() {
-            return Err(Error::BountyNotFound);
-        }
-
-        let bounty = bounty.unwrap();
-        let submission = bounty.submissions.get(user);
-        if submission.is_none() {
-            return Err(Error::SubmissionNotFound);
-        }
-
-        Ok(submission.unwrap())
-    }
-
-    pub fn get_bounty_submissions(env: Env, bounty_id: u32) -> Result<Map<Address, String>, Error> {
-        let storage = env.storage().persistent();
-        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
-        if bounty.is_none() {
-            return Err(Error::BountyNotFound);
-        }
-
-        let bounty = bounty.unwrap();
-        Ok(bounty.submissions)
-    }
-
-    pub fn get_bounty_applicants(env: Env, bounty_id: u32) -> Result<Vec<Address>, Error> {
-        let storage = env.storage().persistent();
-        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
-        if bounty.is_none() {
-            return Err(Error::BountyNotFound);
-        }
-
-        let bounty = bounty.unwrap();
-        Ok(bounty.applicants)
-    }
-
     pub fn get_bounty_winners(env: Env, bounty_id: u32) -> Result<Vec<Address>, Error> {
         let storage = env.storage().persistent();
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
@@ -361,7 +287,6 @@ impl StallionContract {
         reward: i128,
         distribution: Vec<(u32, u32)>,
         submission_deadline: u64,
-        judging_deadline: u64,
         title: String,
     ) -> Result<u32, Error> {
         let storage = env.storage().persistent();
@@ -374,11 +299,6 @@ impl StallionContract {
             return Err(Error::DistributionMustSumTo100);
         }
 
-        // Validate deadlines
-        if judging_deadline <= submission_deadline {
-            return Err(Error::JudgingDeadlineMustBeAfterSubmissionDeadline);
-        }
-
         // Transfer reward to contract
         owner.require_auth();
         let token_client = get_token_client(&env, token.clone());
@@ -386,9 +306,18 @@ impl StallionContract {
         // Get token decimals and adjust reward amount
         let decimals = get_token_decimals(&env, &token);
         let adjusted_reward = adjust_for_decimals(reward, decimals);
+        let adjusted_fee = calculate_fee(adjusted_reward);
 
-        // Transfer the adjusted amount to the account
-        token_client.transfer(&owner, &env.current_contract_address(), &adjusted_reward);
+        // Transfer the adjusted amount + platform fee to the account
+        token_client.transfer(
+            &owner,
+            &env.current_contract_address(),
+            &(adjusted_reward + adjusted_fee),
+        );
+
+        // Transfer fee to token account
+        let fee_account = Self::get_fee_account(&env);
+        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
         // Assign new bounty ID
         let id: u32 = storage.get(&next_id_key()).unwrap_or(1);
@@ -407,11 +336,8 @@ impl StallionContract {
             reward, // Store the original reward amount for display purposes
             distribution: distribution_map,
             submission_deadline,
-            judging_deadline,
             title: title.clone(),
             status: Status::Active,
-            applicants: Vec::new(&env),
-            submissions: Map::new(&env),
             winners: Vec::new(&env),
         };
         storage.set(&bounty_key(id), &bounty);
@@ -469,10 +395,6 @@ impl StallionContract {
             if submission_deadline < now {
                 return Err(Error::InvalidDeadlineUpdate);
             }
-            // Can't move submission deadline past the judging deadline
-            if submission_deadline >= bounty.judging_deadline {
-                return Err(Error::JudgingDeadlineMustBeAfterSubmissionDeadline);
-            }
             bounty.submission_deadline = submission_deadline;
         }
 
@@ -516,11 +438,6 @@ impl StallionContract {
             return Err(Error::OnlyOwner);
         }
 
-        // Check if there are any submissions
-        if bounty.submissions.len() > 0 {
-            return Err(Error::BountyHasSubmissions);
-        }
-
         // Get token decimals for adjustment
         let token_client = get_token_client(&env, bounty.token.clone());
         let decimals = get_token_decimals(&env, &bounty.token);
@@ -538,90 +455,7 @@ impl StallionContract {
         Ok(())
     }
 
-    // Apply to an active bounty
-    pub fn apply_to_bounty(
-        env: Env,
-        applicant: Address,
-        bounty_id: u32,
-        submission_link: String,
-    ) -> Result<(), Error> {
-        applicant.require_auth();
-
-        let storage = env.storage().persistent();
-        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
-        if bounty.is_none() {
-            return Err(Error::BountyNotFound);
-        }
-
-        let mut bounty = bounty.unwrap();
-        let now = env.ledger().timestamp();
-        if bounty.status != Status::Active {
-            return Err(Error::InactiveBounty);
-        }
-        if now > bounty.submission_deadline {
-            return Err(Error::BountyDeadlinePassed);
-        }
-        // Register applicant if new
-        if !bounty.submissions.contains_key(applicant.clone()) {
-            bounty.applicants.push_back(applicant.clone());
-        }
-        // Set/update submission
-        bounty
-            .submissions
-            .set(applicant.clone(), submission_link.clone());
-        storage.set(&bounty_key(bounty_id), &bounty);
-        Events::emit_submission_added(&env, bounty_id, applicant);
-
-        Ok(())
-    }
-
-    // Update an existing submission before the deadline
-    pub fn update_submission(
-        env: Env,
-        applicant: Address,
-        bounty_id: u32,
-        new_submission_link: String,
-    ) -> Result<(), Error> {
-        applicant.require_auth();
-
-        let storage = env.storage().persistent();
-
-        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
-        if bounty.is_none() {
-            return Err(Error::BountyNotFound);
-        }
-        let mut bounty = bounty.unwrap();
-
-        let now = env.ledger().timestamp();
-
-        // Check if bounty is active
-        if bounty.status != Status::Active {
-            return Err(Error::InactiveBounty);
-        }
-
-        // Check if submission deadline has passed
-        if now > bounty.submission_deadline {
-            return Err(Error::BountyDeadlinePassed);
-        }
-
-        // Check if the applicant has an existing submission
-        if !bounty.submissions.contains_key(applicant.clone()) {
-            return Err(Error::SubmissionNotFound);
-        }
-
-        // Update the submission
-        bounty
-            .submissions
-            .set(applicant.clone(), new_submission_link);
-        storage.set(&bounty_key(bounty_id), &bounty);
-
-        // Emit an event for the update
-        Events::emit_submission_updated(&env, bounty_id, applicant);
-
-        Ok(())
-    }
-
-    // Select winners before judging deadline
+    // Select winners
     pub fn select_winners(
         env: Env,
         owner: Address,
@@ -642,33 +476,24 @@ impl StallionContract {
         if bounty.owner != owner {
             return Err(Error::OnlyOwner);
         }
-        let now = env.ledger().timestamp();
-        if now > bounty.judging_deadline {
-            return Err(Error::JudgingDeadlinePassed);
-        }
+
         let num_spec = bounty.distribution.len();
-        if winners.len() < num_spec {
-            return Err(Error::NotEnoughWinners);
+        if winners.len() > num_spec {
+            return Err(Error::TooManyWinners);
         }
 
         // Get token decimals to adjust amounts for transfers
         let token_client = get_token_client(&env, bounty.token.clone());
         let decimals = get_token_decimals(&env, &bounty.token);
 
-        // Use the original reward amount (user-friendly) for calculations
-        let fee = calculate_fee(bounty.reward);
-        let net = bounty.reward - fee;
-        let fee_account = Self::get_fee_account(&env);
-
         // Calculate how many winners we can actually reward
-        let actual_winners = winners.len().min(bounty.applicants.len());
         let mut distributed = 0i128;
 
         // Distribute to available winners
-        for i in 0..actual_winners {
+        for i in 0..winners.len() {
             let rank = (i + 1) as u32;
             if let Some(pct) = bounty.distribution.get(rank) {
-                let amount = net * (pct as i128) / 100;
+                let amount = bounty.reward * (pct as i128) / 100;
                 let winner = winners.get(i as u32).unwrap();
 
                 // Adjust amount for token decimals before transfer
@@ -680,7 +505,7 @@ impl StallionContract {
         }
 
         // Return remaining funds to owner (if any)
-        let remaining = net - distributed;
+        let remaining = bounty.reward - distributed;
         if remaining > 0 {
             // Adjust remaining amount for token decimals
             let adjusted_remaining = adjust_for_decimals(remaining, decimals);
@@ -691,73 +516,10 @@ impl StallionContract {
             );
         }
 
-        // Transfer platform fee to fee account
-        let adjusted_fee = adjust_for_decimals(fee, decimals);
-        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
-
         bounty.status = Status::Completed;
         bounty.winners = winners.clone();
         storage.set(&bounty_key(bounty_id), &bounty);
         Events::emit_winners_selected(&env, bounty_id, winners);
-
-        Ok(())
-    }
-
-    // Check and auto-distribute if judging deadline passed
-    pub fn check_judging(env: Env, bounty_id: u32) -> Result<(), Error> {
-        let storage = env.storage().persistent();
-
-        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
-        if bounty.is_none() {
-            return Err(Error::BountyNotFound);
-        }
-
-        let mut bounty = bounty.unwrap();
-
-        let now = env.ledger().timestamp();
-        if now <= bounty.judging_deadline || bounty.status != Status::Active {
-            return Ok(());
-        }
-
-        // Get token decimals for adjustment
-        let token_client = get_token_client(&env, bounty.token.clone());
-        let decimals = get_token_decimals(&env, &bounty.token);
-
-        // auto-distribute equally to all applicants
-        let fee = calculate_fee(bounty.reward);
-        let net = bounty.reward - fee;
-        let count = bounty.applicants.len() as i128;
-
-        if count == 0 {
-            // Return full reward to owner if no applicants
-            let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &bounty.owner,
-                &adjusted_reward,
-            );
-            return Ok(());
-        }
-
-        // Calculate share for each applicant
-        let share = net / count;
-        let fee_account = Self::get_fee_account(&env);
-
-        // Adjust share amount for token decimals
-        let adjusted_share = adjust_for_decimals(share, decimals);
-
-        // Distribute to each applicant
-        for applicant in bounty.applicants.iter() {
-            token_client.transfer(&env.current_contract_address(), &applicant, &adjusted_share);
-        }
-
-        // Transfer fee to fee account
-        let adjusted_fee = adjust_for_decimals(fee, decimals);
-        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
-
-        bounty.status = Status::Completed;
-        storage.set(&bounty_key(bounty_id), &bounty);
-        Events::emit_auto_distributed(&env, bounty_id);
 
         Ok(())
     }
