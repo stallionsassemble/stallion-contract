@@ -39,6 +39,10 @@ impl Events {
         Symbol::new(env, "fee_account_updated")
     }
 
+    fn bounty_closed_event(env: &Env) -> Symbol {
+        Symbol::new(env, "bounty_closed")
+    }
+
     pub fn emit_bounty_created(env: &Env, bounty_id: u32) {
         env.events()
             .publish((Self::bounty_created_event(env),), bounty_id);
@@ -84,5 +88,10 @@ impl Events {
     pub fn emit_fee_account_updated(env: &Env, new_fee_account: Address) {
         env.events()
             .publish((Self::fee_account_updated_event(env),), new_fee_account);
+    }
+
+    pub fn emit_bounty_closed(env: &Env, bounty_id: u32) {
+        env.events()
+            .publish((Self::bounty_closed_event(env),), bounty_id);
     }
 }

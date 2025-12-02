@@ -7,11 +7,11 @@ pub fn calculate_fee(reward: i128) -> i128 {
     reward * PLATFORM_FEE_PERCENT as i128 / 100
 }
 
-pub fn get_token_client(env: &Env, token_address: Address) -> token::Client {
+pub fn get_token_client(env: &'_ Env, token_address: Address) -> token::Client<'_> {
     token::Client::new(env, &token_address)
 }
 
-pub fn get_token_decimals(env: &Env, token_address: &Address) -> u32 {
+pub fn get_token_decimals(env: &'_ Env, token_address: &Address) -> u32 {
     let token_client = get_token_client(env, token_address.clone());
     token_client.decimals()
 }

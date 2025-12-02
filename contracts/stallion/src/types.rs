@@ -12,24 +12,25 @@ pub enum Error {
     SubmissionNotFound = 5,
     JudgingDeadlinePassed = 6,
     DistributionMustSumTo100 = 7,
-    JudgingDeadlineMustBeAfterSubmissionDeadline = 8,
-    NotEnoughWinners = 9,
-    InternalError = 10,
-    NotAdmin = 11,
-    AdminCannotBeZero = 12,
-    FeeAccountCannotBeZero = 13,
-    SameFeeAccount = 14,
-    BountyHasSubmissions = 15,
-    InvalidDeadlineUpdate = 16,
-    InvalidReward = 17,
+    CannotSelectWinnersBeforeSubmissionDeadline = 8,
+    JudgingDeadlineMustBeAfterSubmissionDeadline = 9,
+    NotEnoughWinners = 10,
+    InternalError = 11,
+    NotAdmin = 12,
+    AdminCannotBeZero = 13,
+    FeeAccountCannotBeZero = 14,
+    SameFeeAccount = 15,
+    BountyHasSubmissions = 16,
+    InvalidDeadlineUpdate = 17,
+    InvalidReward = 18,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Status {
     Active,
-    InReview,
     Completed,
+    Closed
 }
 
 #[contracttype]

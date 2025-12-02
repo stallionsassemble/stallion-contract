@@ -13,7 +13,7 @@ use soroban_sdk::{
     vec,
 };
 
-fn create_token_contract(e: &Env) -> (TokenClient, Address) {
+fn create_token_contract(e: &'_ Env) -> (TokenClient<'_>, Address) {
     e.mock_all_auths();
 
     let issuer = Address::generate(&e);
@@ -40,10 +40,10 @@ fn create_token_contract(e: &Env) -> (TokenClient, Address) {
 }
 
 fn setup_test(
-    env: &Env,
+    env: &'_ Env,
 ) -> (
-    StallionContractClient,
-    TokenClient,
+    StallionContractClient<'_>,
+    TokenClient<'_>,
     Address,
     Address,
     Address,
@@ -109,6 +109,22 @@ fn verify_bounty_deleted_event(env: &Env, contract_id: &Address, bounty_id: &u32
     assert_eq!(
         Symbol::from_val(env, &event.1.get_unchecked(0)),
         Symbol::new(env, "bounty_deleted")
+    );
+    assert_eq!(u32::from_val(env, &event.2), *bounty_id);
+}
+
+fn verify_bounty_closed_event(env: &Env, contract_id: &Address, bounty_id: &u32) {
+    let event = env
+        .events()
+        .all()
+        .try_last()
+        .expect("No events found")
+        .expect("Failed to get last event");
+
+    assert_eq!(event.0, contract_id.clone());
+    assert_eq!(
+        Symbol::from_val(env, &event.1.get_unchecked(0)),
+        Symbol::new(env, "bounty_closed")
     );
     assert_eq!(u32::from_val(env, &event.2), *bounty_id);
 }
@@ -316,6 +332,9 @@ fn test_winner_selection() {
     client.apply_to_bounty(&applicant1, &bounty_id, &String::from_str(&env, "link1"));
     client.apply_to_bounty(&applicant2, &bounty_id, &String::from_str(&env, "link2"));
 
+    // Move past submission deadline
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1001);
+
     // Test winner selection
     let winners = vec![&env, applicant1.clone(), applicant2.clone()];
     client.select_winners(&owner, &bounty_id, &winners);
@@ -427,6 +446,10 @@ fn test_get_active_bounties() {
         &String::from_str(&env, "Third bounty"),
     );
     let winner = Address::generate(&env);
+    
+    // Move past submission deadline
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1001);
+    
     client.select_winners(&owner, &bounty3_id, &vec![&env, winner]);
 
     // Get active bounties
@@ -603,6 +626,9 @@ fn test_getters() {
     // Test get submission
     let submission = client.get_submission(&bounty1_id, &applicant1);
     assert_eq!(submission, String::from_str(&env, "link1"));
+
+    // Move past submission deadline
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1001);
 
     // Test winners getter
     let winners = vec![&env, applicant1.clone(), applicant2.clone()];
@@ -945,4 +971,111 @@ fn test_admin_functions() {
     let random_user = Address::generate(&env);
     let result = client.try_update_fee_account(&random_user);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_close_bounty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, token, distributor, _fee_account, _admin, contract_id) = setup_test(&env);
+    let owner = Address::generate(&env);
+    let not_owner = Address::generate(&env);
+
+    // Fund the owner with some tokens
+    let token_client = TokenClient::new(&env, &token.address);
+    token_client.transfer(
+        &distributor,
+        &owner,
+        &adjust_for_decimals(3000, get_token_decimals(&env, &token.address)),
+    );
+
+    let user_friendly_amount = 1000;
+    let distribution = vec![&env, (1, 60), (2, 40)];
+    let submission_deadline = env.ledger().timestamp() + 1000;
+    let judging_deadline = submission_deadline + 1000;
+    let title = String::from_str(&env, "Test Bounty");
+
+    // Test 1: Create a bounty and close it successfully (no submissions)
+    let bounty_id1 = client.create_bounty(
+        &owner,
+        &token.address,
+        &user_friendly_amount,
+        &distribution,
+        &submission_deadline,
+        &judging_deadline,
+        &title,
+    );
+
+    // Get initial owner balance
+    let initial_balance = token_client.balance(&owner);
+
+    // Close the bounty
+    client.close_bounty(&owner, &bounty_id1);
+    verify_bounty_closed_event(&env, &contract_id, &bounty_id1);
+
+    // Verify bounty status is Closed
+    let bounty = client.get_bounty(&bounty_id1);
+    assert_eq!(bounty.status, Status::Closed);
+
+    // Verify funds were returned to owner
+    let final_balance = token_client.balance(&owner);
+    assert_eq!(
+        final_balance,
+        initial_balance
+            + adjust_for_decimals(
+                user_friendly_amount,
+                get_token_decimals(&env, &token.address)
+            )
+    );
+
+    // Test 2: Try to close with non-owner (should fail)
+    let bounty_id2 = client.create_bounty(
+        &owner,
+        &token.address,
+        &user_friendly_amount,
+        &distribution,
+        &submission_deadline,
+        &judging_deadline,
+        &title,
+    );
+
+    let result = client.try_close_bounty(&not_owner, &bounty_id2);
+    assert_eq!(result, Err(Ok(Error::OnlyOwner)));
+
+    // Test 3: Try to close bounty with submissions (should fail)
+    let applicant = Address::generate(&env);
+    let submission_link = String::from_str(&env, "https://example.com/submission");
+    client.apply_to_bounty(&applicant, &bounty_id2, &submission_link);
+
+    let result = client.try_close_bounty(&owner, &bounty_id2);
+    assert_eq!(result, Err(Ok(Error::BountyHasSubmissions)));
+
+    // Verify bounty is still active (not closed)
+    let bounty = client.get_bounty(&bounty_id2);
+    assert_eq!(bounty.status, Status::Active);
+
+    // Test 4: Try to close non-existent bounty (should fail)
+    let non_existent_id = 9999;
+    let result = client.try_close_bounty(&owner, &non_existent_id);
+    assert_eq!(result, Err(Ok(Error::BountyNotFound)));
+
+    // Test 5: Verify closed bounty remains in storage and can be queried
+    let bounty = client.get_bounty(&bounty_id1);
+    assert_eq!(bounty.status, Status::Closed);
+    assert_eq!(bounty.owner, owner);
+    assert_eq!(bounty.reward, user_friendly_amount);
+
+    // Test 6: Verify closed bounty appears in owner's bounties
+    let owner_bounties = client.get_owner_bounties(&owner);
+    assert!(owner_bounties.contains(&bounty_id1));
+
+    // Test 7: Verify closed bounty appears in status-based queries
+    let closed_bounties = client.get_bounties_by_status(&Status::Closed);
+    assert!(closed_bounties.contains(&bounty_id1));
+    assert_eq!(client.get_bounties_by_status_count(&Status::Closed), 1);
+
+    // Test 8: Verify closed bounty does NOT appear in active bounties
+    let active_bounties = client.get_active_bounties();
+    assert!(!active_bounties.contains(&bounty_id1));
 }

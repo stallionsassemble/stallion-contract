@@ -538,6 +538,46 @@ impl StallionContract {
         Ok(())
     }
 
+    // Close a bounty if it has no submissions
+    pub fn close_bounty(env: Env, owner: Address, bounty_id: u32) -> Result<(), Error> {
+        owner.require_auth();
+
+        let storage = env.storage().persistent();
+
+        let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
+        if bounty.is_none() {
+            return Err(Error::BountyNotFound);
+        }
+
+        let mut bounty = bounty.unwrap();
+
+        if bounty.owner != owner {
+            return Err(Error::OnlyOwner);
+        }
+
+        // Check if there are any submissions
+        if bounty.submissions.len() > 0 {
+            return Err(Error::BountyHasSubmissions);
+        }
+
+        // Get token decimals for adjustment
+        let token_client = get_token_client(&env, bounty.token.clone());
+        let decimals = get_token_decimals(&env, &bounty.token);
+
+        // Adjust reward amount according to token decimals
+        let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
+
+        // Return funds to owner
+        token_client.transfer(&env.current_contract_address(), &owner, &adjusted_reward);
+
+        // Update bounty status to Closed
+        bounty.status = Status::Closed;
+        storage.set(&bounty_key(bounty_id), &bounty);
+        Events::emit_bounty_closed(&env, bounty_id);
+
+        Ok(())
+    }
+
     // Apply to an active bounty
     pub fn apply_to_bounty(
         env: Env,
@@ -643,6 +683,9 @@ impl StallionContract {
             return Err(Error::OnlyOwner);
         }
         let now = env.ledger().timestamp();
+        if now < bounty.submission_deadline {
+            return Err(Error::CannotSelectWinnersBeforeSubmissionDeadline);
+        }
         if now > bounty.judging_deadline {
             return Err(Error::JudgingDeadlinePassed);
         }
