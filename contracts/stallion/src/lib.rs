@@ -528,8 +528,10 @@ impl StallionContract {
         // Adjust reward amount according to token decimals
         let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
 
-        // Return funds to owner
-        token_client.transfer(&env.current_contract_address(), &owner, &adjusted_reward);
+        // Return funds to owner if the bounty has not been closed
+        if bounty.status != Status::Closed {
+            token_client.transfer(&env.current_contract_address(), &owner, &adjusted_reward);
+        }
 
         // Remove bounty
         storage.remove(&bounty_key(bounty_id));
