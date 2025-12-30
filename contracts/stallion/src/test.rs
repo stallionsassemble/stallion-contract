@@ -203,13 +203,15 @@ fn test_bounty_creation() {
 
     // Define token amount with decimals - 1000 tokens with 7 decimals
     let user_friendly_amount = 1000; // Original token amount for contract input
+    let fee = utils::calculate_fee(user_friendly_amount);
+    let total_needed = user_friendly_amount + fee; // Need reward + fee
     let token_amount = adjust_for_decimals(
-        user_friendly_amount,
+        total_needed,
         get_token_decimals(&env, &token.address),
     );
 
     let owner = Address::generate(&env);
-    // Transfer the amount adjusted for decimals
+    // Transfer the amount adjusted for decimals (reward + fee)
     token.transfer(&distributor, &owner, &token_amount);
 
     // Test valid bounty creation
@@ -261,8 +263,10 @@ fn test_bounty_submissions() {
     env.mock_all_auths();
 
     let user_friendly_amount = 1000; // Original token amount for contract input
+    let fee = utils::calculate_fee(user_friendly_amount);
+    let total_needed = user_friendly_amount + fee; // Need reward + fee
     let token_amount = adjust_for_decimals(
-        user_friendly_amount,
+        total_needed,
         get_token_decimals(&env, &token.address),
     );
 
@@ -307,8 +311,10 @@ fn test_winner_selection() {
     env.mock_all_auths();
 
     let user_friendly_amount = 1000; // Original token amount for contract input
+    let fee = utils::calculate_fee(user_friendly_amount);
+    let total_needed = user_friendly_amount + fee; // Need reward + fee
     let token_amount = adjust_for_decimals(
-        user_friendly_amount,
+        total_needed,
         get_token_decimals(&env, &token.address),
     );
 
@@ -342,15 +348,16 @@ fn test_winner_selection() {
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, Status::Completed);
 
-    let platform_fee = utils::calculate_fee(token_amount);
-    let net_reward = token_amount - platform_fee;
-    let applicant1_reward = (net_reward * 60) / 100;
-    let applicant2_reward = net_reward - applicant1_reward;
+    // Fee is paid upfront, so winners split the full reward amount
+    let reward_amount = adjust_for_decimals(user_friendly_amount, get_token_decimals(&env, &token.address));
+    let applicant1_reward = (reward_amount * 60) / 100;
+    let applicant2_reward = (reward_amount * 40) / 100;
+    let platform_fee = adjust_for_decimals(fee, get_token_decimals(&env, &token.address));
 
-    // Verify token distribution includes fee going to fee_account
-    assert_eq!(token.balance(&applicant1), applicant1_reward); // 60% of 950 (after 5% fee)
-    assert_eq!(token.balance(&applicant2), applicant2_reward); // 40% of 950 (after 5% fee)
-    assert_eq!(token.balance(&fee_account), platform_fee); // 5% fee goes to fee account
+    // Verify token distribution - fee was paid upfront in create_bounty
+    assert_eq!(token.balance(&applicant1), applicant1_reward); // 60% of full reward
+    assert_eq!(token.balance(&applicant2), applicant2_reward); // 40% of full reward
+    assert_eq!(token.balance(&fee_account), platform_fee); // Fee paid upfront
 }
 
 #[test]
@@ -360,8 +367,10 @@ fn test_auto_distribution() {
     env.mock_all_auths();
 
     let user_friendly_amount = 1000; // Original token amount for contract input
+    let fee = utils::calculate_fee(user_friendly_amount);
+    let total_needed = user_friendly_amount + fee; // Need reward + fee
     let token_amount = adjust_for_decimals(
-        user_friendly_amount,
+        total_needed,
         get_token_decimals(&env, &token.address),
     );
 
@@ -391,14 +400,14 @@ fn test_auto_distribution() {
     // Trigger auto-distribution
     client.check_judging(&bounty_id);
 
-    // Verify token distribution
-    let platform_fee = utils::calculate_fee(token_amount);
-    let net_reward = token_amount - platform_fee;
-    let reward_per_applicant = net_reward / 2; // Net reward should be divided equally between both applicants
+    // Verify token distribution - fee was paid upfront, reward split equally
+    let reward_amount = adjust_for_decimals(user_friendly_amount, get_token_decimals(&env, &token.address));
+    let reward_per_applicant = reward_amount / 2; // Full reward divided equally between both applicants
+    let platform_fee = adjust_for_decimals(fee, get_token_decimals(&env, &token.address));
 
     assert_eq!(token.balance(&applicant1), reward_per_applicant);
     assert_eq!(token.balance(&applicant2), reward_per_applicant);
-    assert_eq!(token.balance(&fee_account), platform_fee);
+    assert_eq!(token.balance(&fee_account), platform_fee); // Fee paid upfront
 }
 
 #[test]
@@ -408,7 +417,10 @@ fn test_get_active_bounties() {
     env.mock_all_auths();
 
     let user_friendly_amount = 1000; // Amount per bounty in user-friendly format
-    let token_amount = adjust_for_decimals(5000, get_token_decimals(&env, &token.address));
+    let fee_per_bounty = utils::calculate_fee(user_friendly_amount);
+    let total_per_bounty = user_friendly_amount + fee_per_bounty;
+    // Need enough for 3 bounties (reward + fee each)
+    let token_amount = adjust_for_decimals(total_per_bounty * 3, get_token_decimals(&env, &token.address));
 
     let owner = Address::generate(&env);
     token.transfer(&distributor, &owner, &token_amount);
@@ -471,32 +483,35 @@ fn test_getters() {
     let owner1 = Address::generate(&env);
     let owner2 = Address::generate(&env);
 
+    // Define user-friendly amounts for bounties
+    let bounty1_amount = 1000;
+    let bounty2_amount = 500;
+    let bounty3_amount = 750;
+
+    // Calculate total needed including fees
+    let bounty1_fee = utils::calculate_fee(bounty1_amount);
+    let bounty2_fee = utils::calculate_fee(bounty2_amount);
+    let bounty3_fee = utils::calculate_fee(bounty3_amount);
+    
+    // Owner1 needs: bounty1 (1000+50) + bounty2 (500+25) = 1575
+    let owner1_total = (bounty1_amount + bounty1_fee) + (bounty2_amount + bounty2_fee);
+    // Owner2 needs: bounty3 (750+37.5) = 787.5, round up to 788
+    let owner2_total = bounty3_amount + bounty3_fee;
+
     // Transfer tokens to owners (with decimals)
     token.transfer(
         &distributor,
         &owner1,
-        &adjust_for_decimals(2000, get_token_decimals(&env, &token.address)),
+        &adjust_for_decimals(owner1_total, get_token_decimals(&env, &token.address)),
     );
     token.transfer(
         &distributor,
         &owner2,
-        &adjust_for_decimals(1000, get_token_decimals(&env, &token.address)),
+        &adjust_for_decimals(owner2_total, get_token_decimals(&env, &token.address)),
     );
 
     // Create second token contract and get its admin client to mint tokens
     let (token2, token2_distributor) = create_token_contract(&env);
-
-    // Mint additional tokens to owners for both tokens (with decimals)
-    token.transfer(
-        &distributor,
-        &owner1,
-        &adjust_for_decimals(2000, get_token_decimals(&env, &token.address)),
-    );
-    token.transfer(
-        &distributor,
-        &owner2,
-        &adjust_for_decimals(1000, get_token_decimals(&env, &token.address)),
-    );
 
     // Mint tokens for token2 (with decimals)
     let token2_admin = TokenAdminClient::new(&env, &token2.address);
@@ -504,16 +519,12 @@ fn test_getters() {
         &token2_distributor,
         &adjust_for_decimals(10000, get_token_decimals(&env, &token2.address)),
     );
+    // Owner1 needs bounty2 amount + fee for token2
     token2.transfer(
         &token2_distributor,
         &owner1,
-        &adjust_for_decimals(1000, get_token_decimals(&env, &token2.address)),
+        &adjust_for_decimals(bounty2_amount + bounty2_fee, get_token_decimals(&env, &token2.address)),
     );
-
-    // Define user-friendly amounts for bounties
-    let bounty1_amount = 1000;
-    let bounty2_amount = 500;
-    let bounty3_amount = 750;
 
     // Bounty 1: Owner1, Token1
     let bounty1_id = client.create_bounty(
@@ -659,14 +670,16 @@ fn test_update_submission() {
     env.mock_all_auths();
 
     let bounty_amount = 1000;
-    let transfer_amount = adjust_for_decimals(2000, get_token_decimals(&env, &token.address));
+    let fee = utils::calculate_fee(bounty_amount);
+    let total_needed = bounty_amount + fee;
+    let transfer_amount = adjust_for_decimals(total_needed, get_token_decimals(&env, &token.address));
 
     // Setup test data
     let owner = Address::generate(&env);
     let applicant1 = Address::generate(&env);
     let applicant2 = Address::generate(&env);
 
-    // Transfer tokens to owner (with decimals)
+    // Transfer tokens to owner (with decimals, including fee)
     token.transfer(&distributor, &owner, &transfer_amount);
 
     // Create a bounty
@@ -759,17 +772,22 @@ fn test_update_and_delete_bounty() {
     let owner = Address::generate(&env);
     let not_owner = Address::generate(&env);
 
-    // Fund the owner with some tokens - ensure enough for our tests
+    // Define user-friendly amounts for testing
+    let user_friendly_amount1 = 1000;
+    let user_friendly_amount2 = 500;
+    
+    // Calculate fees and total needed
+    let fee1 = utils::calculate_fee(user_friendly_amount1);
+    let fee2 = utils::calculate_fee(user_friendly_amount2);
+    let total_needed = (user_friendly_amount1 + fee1) + (user_friendly_amount2 + fee2);
+
+    // Fund the owner with some tokens - ensure enough for our tests (2 bounties)
     let token_client = TokenClient::new(&env, &token.address);
     token_client.transfer(
         &distributor,
         &owner,
-        &adjust_for_decimals(2000, get_token_decimals(&env, &token.address)),
+        &adjust_for_decimals(total_needed, get_token_decimals(&env, &token.address)),
     );
-
-    // Define user-friendly amounts for testing
-    let user_friendly_amount1 = 1000;
-    let user_friendly_amount2 = 500;
 
     // Create a bounty
     let distribution = vec![&env, (1, 60), (2, 40)];

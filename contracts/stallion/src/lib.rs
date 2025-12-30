@@ -379,16 +379,23 @@ impl StallionContract {
             return Err(Error::JudgingDeadlineMustBeAfterSubmissionDeadline);
         }
 
-        // Transfer reward to contract
+        // Calculate fee and total amount to transfer
         owner.require_auth();
         let token_client = get_token_client(&env, token.clone());
+        let fee = calculate_fee(reward);
+        let total_amount = reward + fee;
 
-        // Get token decimals and adjust reward amount
+        // Get token decimals and adjust amounts
         let decimals = get_token_decimals(&env, &token);
-        let adjusted_reward = adjust_for_decimals(reward, decimals);
+        let adjusted_total = adjust_for_decimals(total_amount, decimals);
+        let adjusted_fee = adjust_for_decimals(fee, decimals);
 
-        // Transfer the adjusted amount to the account
-        token_client.transfer(&owner, &env.current_contract_address(), &adjusted_reward);
+        // Transfer reward + fee from owner to contract
+        token_client.transfer(&owner, &env.current_contract_address(), &adjusted_total);
+
+        // Immediately transfer fee to fee account
+        let fee_account = Self::get_fee_account(&env);
+        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
         // Assign new bounty ID
         let id: u32 = storage.get(&next_id_key()).unwrap_or(1);
@@ -700,10 +707,8 @@ impl StallionContract {
         let token_client = get_token_client(&env, bounty.token.clone());
         let decimals = get_token_decimals(&env, &bounty.token);
 
-        // Use the original reward amount (user-friendly) for calculations
-        let fee = calculate_fee(bounty.reward);
-        let net = bounty.reward - fee;
-        let fee_account = Self::get_fee_account(&env);
+        // Use the full reward amount for distribution (fee already paid in create_bounty)
+        let total_reward = bounty.reward;
 
         // Calculate how many winners we can actually reward
         let actual_winners = winners.len().min(bounty.applicants.len());
@@ -713,7 +718,7 @@ impl StallionContract {
         for i in 0..actual_winners {
             let rank = (i + 1) as u32;
             if let Some(pct) = bounty.distribution.get(rank) {
-                let amount = net * (pct as i128) / 100;
+                let amount = total_reward * (pct as i128) / 100;
                 let winner = winners.get(i as u32).unwrap();
 
                 // Adjust amount for token decimals before transfer
@@ -725,7 +730,7 @@ impl StallionContract {
         }
 
         // Return remaining funds to owner (if any)
-        let remaining = net - distributed;
+        let remaining = total_reward - distributed;
         if remaining > 0 {
             // Adjust remaining amount for token decimals
             let adjusted_remaining = adjust_for_decimals(remaining, decimals);
@@ -735,10 +740,6 @@ impl StallionContract {
                 &adjusted_remaining,
             );
         }
-
-        // Transfer platform fee to fee account
-        let adjusted_fee = adjust_for_decimals(fee, decimals);
-        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
         bounty.status = Status::Completed;
         bounty.winners = winners.clone();
@@ -768,9 +769,8 @@ impl StallionContract {
         let token_client = get_token_client(&env, bounty.token.clone());
         let decimals = get_token_decimals(&env, &bounty.token);
 
-        // auto-distribute equally to all applicants
-        let fee = calculate_fee(bounty.reward);
-        let net = bounty.reward - fee;
+        // Auto-distribute equally to all applicants (fee already paid in create_bounty)
+        let total_reward = bounty.reward;
         let count = bounty.applicants.len() as i128;
 
         if count == 0 {
@@ -785,8 +785,7 @@ impl StallionContract {
         }
 
         // Calculate share for each applicant
-        let share = net / count;
-        let fee_account = Self::get_fee_account(&env);
+        let share = total_reward / count;
 
         // Adjust share amount for token decimals
         let adjusted_share = adjust_for_decimals(share, decimals);
@@ -795,10 +794,6 @@ impl StallionContract {
         for applicant in bounty.applicants.iter() {
             token_client.transfer(&env.current_contract_address(), &applicant, &adjusted_share);
         }
-
-        // Transfer fee to fee account
-        let adjusted_fee = adjust_for_decimals(fee, decimals);
-        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
         bounty.status = Status::Completed;
         storage.set(&bounty_key(bounty_id), &bounty);
