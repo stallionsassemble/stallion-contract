@@ -14,7 +14,7 @@ use crate::utils::{
     validate_distribution_sum,
 };
 use events::Events;
-use storage::{admin_key, bounty_key, fee_account_key, next_id_key};
+use storage::{admin_key, bounty_key, fee_account_key, next_id_key, next_project_id_key, project_key};
 
 contractmeta!(key = "Version", val = "0.1.0");
 contractmeta!(
@@ -31,6 +31,10 @@ pub struct StallionContract;
 
 #[contractimpl]
 impl StallionContract {
+    // ========================================
+    // CONSTRUCTOR
+    // ========================================
+
     pub fn __constructor(env: Env, admin: Address, fee_account: Address) {
         if is_zero_address(&env, &admin) {
             panic!("admin cannot be zero address");
@@ -46,6 +50,10 @@ impl StallionContract {
         Events::emit_fee_account_updated(&env, fee_account);
     }
 
+    // ========================================
+    // INTERNAL HELPER FUNCTIONS
+    // ========================================
+
     fn get_admin(env: &Env) -> Address {
         env.storage().persistent().get(&admin_key()).unwrap()
     }
@@ -53,6 +61,48 @@ impl StallionContract {
     fn get_fee_account(env: &Env) -> Address {
         env.storage().persistent().get(&fee_account_key()).unwrap()
     }
+
+    // ========================================
+    // ADMIN FUNCTIONS
+    // ========================================
+
+    pub fn update_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
+
+        if is_zero_address(&env, &new_admin) {
+            return Err(Error::AdminCannotBeZero);
+        }
+
+        env.storage().persistent().set(&admin_key(), &new_admin);
+        Events::emit_admin_updated(&env, new_admin.clone());
+        Ok(())
+    }
+
+    pub fn update_fee_account(env: Env, new_fee_account: Address) -> Result<(), Error> {
+        let admin = Self::get_admin(&env);
+        admin.require_auth();
+
+        if is_zero_address(&env, &new_fee_account) {
+            return Err(Error::FeeAccountCannotBeZero);
+        }
+
+        // Check if the new fee account is the same as the current fee account
+        let current_fee_account = Self::get_fee_account(&env);
+        if current_fee_account == new_fee_account {
+            return Err(Error::SameFeeAccount);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&fee_account_key(), &new_fee_account);
+        Events::emit_fee_account_updated(&env, new_fee_account.clone());
+        Ok(())
+    }
+
+    // ========================================
+    // BOUNTY QUERY FUNCTIONS
+    // ========================================
 
     pub fn get_bounties(env: Env) -> Vec<u32> {
         let storage = env.storage().persistent();
@@ -320,39 +370,9 @@ impl StallionContract {
         Ok(bounty.status)
     }
 
-    pub fn update_admin(env: Env, new_admin: Address) -> Result<Address, Error> {
-        let admin = Self::get_admin(&env);
-        admin.require_auth();
-
-        if is_zero_address(&env, &new_admin) {
-            return Err(Error::AdminCannotBeZero);
-        }
-
-        env.storage().persistent().set(&admin_key(), &new_admin);
-        Events::emit_admin_updated(&env, new_admin.clone());
-        Ok(new_admin)
-    }
-
-    pub fn update_fee_account(env: Env, new_fee_account: Address) -> Result<Address, Error> {
-        let admin = Self::get_admin(&env);
-        admin.require_auth();
-
-        if is_zero_address(&env, &new_fee_account) {
-            return Err(Error::FeeAccountCannotBeZero);
-        }
-
-        // Check if the new fee account is the same as the current fee account
-        let current_fee_account = Self::get_fee_account(&env);
-        if current_fee_account == new_fee_account {
-            return Err(Error::SameFeeAccount);
-        }
-
-        env.storage()
-            .persistent()
-            .set(&fee_account_key(), &new_fee_account);
-        Events::emit_fee_account_updated(&env, new_fee_account.clone());
-        Ok(new_fee_account)
-    }
+    // ========================================
+    // BOUNTY CREATION & MANAGEMENT
+    // ========================================
 
     pub fn create_bounty(
         env: Env,
@@ -427,7 +447,6 @@ impl StallionContract {
         Ok(id)
     }
 
-    // Update an existing bounty
     pub fn update_bounty(
         env: Env,
         owner: Address,
@@ -506,7 +525,6 @@ impl StallionContract {
         Ok(())
     }
 
-    // Delete a bounty if it has no submissions
     pub fn delete_bounty(env: Env, owner: Address, bounty_id: u32) -> Result<(), Error> {
         owner.require_auth();
 
@@ -547,7 +565,6 @@ impl StallionContract {
         Ok(())
     }
 
-    // Close a bounty if it has no submissions
     pub fn close_bounty(env: Env, owner: Address, bounty_id: u32) -> Result<(), Error> {
         owner.require_auth();
 
@@ -587,7 +604,6 @@ impl StallionContract {
         Ok(())
     }
 
-    // Apply to an active bounty
     pub fn apply_to_bounty(
         env: Env,
         applicant: Address,
@@ -624,7 +640,6 @@ impl StallionContract {
         Ok(())
     }
 
-    // Update an existing submission before the deadline
     pub fn update_submission(
         env: Env,
         applicant: Address,
@@ -670,7 +685,6 @@ impl StallionContract {
         Ok(())
     }
 
-    // Select winners before judging deadline
     pub fn select_winners(
         env: Env,
         owner: Address,
@@ -749,7 +763,6 @@ impl StallionContract {
         Ok(())
     }
 
-    // Check and auto-distribute if judging deadline passed
     pub fn check_judging(env: Env, bounty_id: u32) -> Result<(), Error> {
         let storage = env.storage().persistent();
 
@@ -800,6 +813,385 @@ impl StallionContract {
         Events::emit_auto_distributed(&env, bounty_id);
 
         Ok(())
+    }
+
+    // ========================================
+    // PROJECT QUERY FUNCTIONS
+    // ========================================
+
+    pub fn get_project(env: Env, project_id: u32) -> Result<Project, Error> {
+        let storage = env.storage().persistent();
+        let project: Option<Project> = storage.get(&project_key(project_id));
+        
+        if project.is_none() {
+            return Err(Error::ProjectNotFound);
+        }
+
+        Ok(project.unwrap())
+    }
+
+    pub fn get_projects(env: Env) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
+        let mut projects = Vec::new(&env);
+        
+        for id in 1..next_id {
+            let project: Option<Project> = storage.get(&project_key(id));
+            if project.is_some() {
+                projects.push_back(id);
+            }
+        }
+        
+        projects
+    }
+
+    pub fn get_owner_projects(env: Env, owner: Address) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
+        let mut projects = Vec::new(&env);
+        
+        for id in 1..next_id {
+            let project: Option<Project> = storage.get(&project_key(id));
+            if project.is_none() {
+                continue;
+            }
+
+            let project = project.unwrap();
+            if project.owner == owner {
+                projects.push_back(id);
+            }
+        }
+        
+        projects
+    }
+
+    pub fn get_projects_by_status(env: Env, status: ProjectStatus) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
+        let mut projects = Vec::new(&env);
+        
+        for id in 1..next_id {
+            let project: Option<Project> = storage.get(&project_key(id));
+            if project.is_none() {
+                continue;
+            }
+
+            let project = project.unwrap();
+            if project.status == status {
+                projects.push_back(id);
+            }
+        }
+        
+        projects
+    }
+
+    // ========================================
+    // PROJECT CREATION & MANAGEMENT
+    // ========================================
+
+    pub fn create_project_gig(
+        env: Env,
+        owner: Address,
+        token: Address,
+        total_reward: i128,
+        milestones: Vec<MilestoneData>,
+        deadline: u64,
+        platform_fee: i128,
+    ) -> Result<u32, Error> {
+        owner.require_auth();
+
+        let storage = env.storage().persistent();
+
+        // Validate inputs
+        if total_reward <= 0 {
+            return Err(Error::InvalidReward);
+        }
+
+        if platform_fee < 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        if milestones.is_empty() {
+            return Err(Error::InvalidMilestones);
+        }
+
+        // Validate deadline is in the future
+        let now = env.ledger().timestamp();
+        if deadline <= now {
+            return Err(Error::DeadlinePassed);
+        }
+
+        // Validate milestones sum to total_reward
+        let mut milestone_sum: i128 = 0;
+        for milestone in milestones.iter() {
+            if milestone.amount <= 0 {
+                return Err(Error::InvalidAmount);
+            }
+            milestone_sum += milestone.amount;
+        }
+        if milestone_sum != total_reward {
+            return Err(Error::InvalidMilestones);
+        }
+
+        // Transfer total_reward + platform_fee from owner to contract
+        let token_client = get_token_client(&env, token.clone());
+        let decimals = get_token_decimals(&env, &token);
+        let total_amount = total_reward + platform_fee;
+        let adjusted_total = adjust_for_decimals(total_amount, decimals);
+        let adjusted_fee = adjust_for_decimals(platform_fee, decimals);
+
+        token_client.transfer(&owner, &env.current_contract_address(), &adjusted_total);
+
+        // Transfer platform fee to fee account
+        let fee_account = Self::get_fee_account(&env);
+        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
+
+        // Assign new project ID
+        let id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
+        let next = id + 1;
+        storage.set(&next_project_id_key(), &next);
+
+        // Convert MilestoneData to MilestoneInfo
+        let mut milestone_infos = Vec::new(&env);
+        for milestone in milestones.iter() {
+            milestone_infos.push_back(MilestoneInfo {
+                amount: milestone.amount,
+                order: milestone.order,
+                is_paid: false,
+            });
+        }
+
+        // Create project
+        let project = Project {
+            owner: owner.clone(),
+            project_type: ProjectType::Gig,
+            token: token.clone(),
+            total_reward,
+            remaining_escrow: total_reward,
+            deadline,
+            status: ProjectStatus::Active,
+            milestones: milestone_infos,
+        };
+
+        storage.set(&project_key(id), &project);
+        Events::emit_project_gig_created(&env, id, total_reward);
+
+        Ok(id)
+    }
+
+    pub fn create_project_job(
+        env: Env,
+        owner: Address,
+        token: Address,
+        reward_amount: i128,
+        platform_fee: i128,
+        deadline: u64,
+    ) -> Result<u32, Error> {
+        owner.require_auth();
+
+        let storage = env.storage().persistent();
+
+        // Validate inputs
+        if reward_amount <= 0 {
+            return Err(Error::InvalidReward);
+        }
+
+        if platform_fee < 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        // Validate deadline is in the future
+        let now = env.ledger().timestamp();
+        if deadline <= now {
+            return Err(Error::DeadlinePassed);
+        }
+
+        // Transfer only platform_fee from owner to contract
+        let token_client = get_token_client(&env, token.clone());
+        let decimals = get_token_decimals(&env, &token);
+        let adjusted_fee = adjust_for_decimals(platform_fee, decimals);
+
+        token_client.transfer(&owner, &env.current_contract_address(), &adjusted_fee);
+
+        // Transfer platform fee to fee account
+        let fee_account = Self::get_fee_account(&env);
+        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
+
+        // Assign new project ID
+        let id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
+        let next = id + 1;
+        storage.set(&next_project_id_key(), &next);
+
+        // Create project (no escrow, no milestones)
+        let project = Project {
+            owner: owner.clone(),
+            project_type: ProjectType::Job,
+            token: token.clone(),
+            total_reward: reward_amount,
+            remaining_escrow: 0,
+            deadline,
+            status: ProjectStatus::Active,
+            milestones: Vec::new(&env),
+        };
+
+        storage.set(&project_key(id), &project);
+        Events::emit_project_job_created(&env, id);
+
+        Ok(id)
+    }
+
+    pub fn release_milestone_payment(
+        env: Env,
+        owner: Address,
+        project_id: u32,
+        milestone_order: u32,
+        contributor: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        owner.require_auth();
+
+        let storage = env.storage().persistent();
+
+        // Get project
+        let project: Option<Project> = storage.get(&project_key(project_id));
+        if project.is_none() {
+            return Err(Error::ProjectNotFound);
+        }
+
+        let mut project = project.unwrap();
+
+        // Verify caller is project owner
+        if project.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+
+        // Verify project is GIG type
+        if project.project_type != ProjectType::Gig {
+            return Err(Error::InvalidProjectType);
+        }
+
+        // Verify project is active
+        if project.status != ProjectStatus::Active {
+            return Err(Error::ProjectNotActive);
+        }
+
+        // Find milestone
+        let mut milestone_found = false;
+        let mut milestone_index: u32 = 0;
+        for (i, milestone) in project.milestones.iter().enumerate() {
+            if milestone.order == milestone_order {
+                milestone_found = true;
+                milestone_index = i as u32;
+
+                // Check if already paid
+                if milestone.is_paid {
+                    return Err(Error::MilestoneAlreadyPaid);
+                }
+
+                // Verify amount matches
+                if milestone.amount != amount {
+                    return Err(Error::InvalidAmount);
+                }
+                break;
+            }
+        }
+
+        if !milestone_found {
+            return Err(Error::MilestoneNotFound);
+        }
+
+        // Verify sufficient escrow
+        if project.remaining_escrow < amount {
+            return Err(Error::InsufficientEscrow);
+        }
+
+        // Transfer payment to contributor
+        let token_client = get_token_client(&env, project.token.clone());
+        let decimals = get_token_decimals(&env, &project.token);
+        let adjusted_amount = adjust_for_decimals(amount, decimals);
+
+        token_client.transfer(&env.current_contract_address(), &contributor, &adjusted_amount);
+
+        // Update milestone as paid
+        let mut updated_milestone = project.milestones.get(milestone_index).unwrap();
+        updated_milestone.is_paid = true;
+        project.milestones.set(milestone_index, updated_milestone);
+
+        // Update remaining escrow
+        project.remaining_escrow -= amount;
+
+        // Check if all milestones are paid
+        let mut all_paid = true;
+        for milestone in project.milestones.iter() {
+            if !milestone.is_paid {
+                all_paid = false;
+                break;
+            }
+        }
+
+        if all_paid {
+            project.status = ProjectStatus::Completed;
+            Events::emit_project_completed(&env, project_id);
+        }
+
+        storage.set(&project_key(project_id), &project);
+        Events::emit_milestone_paid(&env, project_id, milestone_order, contributor, amount);
+
+        Ok(())
+    }
+
+    pub fn cancel_project_gig(
+        env: Env,
+        owner: Address,
+        project_id: u32,
+    ) -> Result<i128, Error> {
+        owner.require_auth();
+
+        let storage = env.storage().persistent();
+
+        // Get project
+        let project: Option<Project> = storage.get(&project_key(project_id));
+        if project.is_none() {
+            return Err(Error::ProjectNotFound);
+        }
+
+        let mut project = project.unwrap();
+
+        // Verify caller is project owner
+        if project.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+
+        // Verify project is GIG type
+        if project.project_type != ProjectType::Gig {
+            return Err(Error::InvalidProjectType);
+        }
+
+        // Verify project is active
+        if project.status != ProjectStatus::Active {
+            return Err(Error::ProjectNotActive);
+        }
+
+        // Calculate refund amount (remaining escrow)
+        let refund_amount = project.remaining_escrow;
+
+        // Transfer refund to owner if there's any remaining escrow
+        if refund_amount > 0 {
+            let token_client = get_token_client(&env, project.token.clone());
+            let decimals = get_token_decimals(&env, &project.token);
+            let adjusted_refund = adjust_for_decimals(refund_amount, decimals);
+
+            token_client.transfer(&env.current_contract_address(), &owner, &adjusted_refund);
+        }
+
+        // Update project status
+        project.status = ProjectStatus::Cancelled;
+        project.remaining_escrow = 0;
+
+        storage.set(&project_key(project_id), &project);
+        Events::emit_project_cancelled(&env, project_id, refund_amount);
+
+        Ok(refund_amount)
     }
 }
 

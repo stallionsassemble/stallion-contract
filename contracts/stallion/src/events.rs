@@ -43,6 +43,26 @@ impl Events {
         Symbol::new(env, "bounty_closed")
     }
 
+    fn project_gig_created_event(env: &Env) -> Symbol {
+        Symbol::new(env, "project_gig_created")
+    }
+
+    fn project_job_created_event(env: &Env) -> Symbol {
+        Symbol::new(env, "project_job_created")
+    }
+
+    fn milestone_paid_event(env: &Env) -> Symbol {
+        Symbol::new(env, "milestone_paid")
+    }
+
+    fn project_cancelled_event(env: &Env) -> Symbol {
+        Symbol::new(env, "project_cancelled")
+    }
+
+    fn project_completed_event(env: &Env) -> Symbol {
+        Symbol::new(env, "project_completed")
+    }
+
     pub fn emit_bounty_created(env: &Env, bounty_id: u32) {
         env.events()
             .publish((Self::bounty_created_event(env),), bounty_id);
@@ -93,5 +113,30 @@ impl Events {
     pub fn emit_bounty_closed(env: &Env, bounty_id: u32) {
         env.events()
             .publish((Self::bounty_closed_event(env),), bounty_id);
+    }
+
+    pub fn emit_project_gig_created(env: &Env, project_id: u32, total_reward: i128) {
+        env.events()
+            .publish((Self::project_gig_created_event(env),), (project_id, total_reward));
+    }
+
+    pub fn emit_project_job_created(env: &Env, project_id: u32) {
+        env.events()
+            .publish((Self::project_job_created_event(env),), project_id);
+    }
+
+    pub fn emit_milestone_paid(env: &Env, project_id: u32, milestone_order: u32, contributor: Address, amount: i128) {
+        env.events()
+            .publish((Self::milestone_paid_event(env),), (project_id, milestone_order, contributor, amount));
+    }
+
+    pub fn emit_project_cancelled(env: &Env, project_id: u32, refunded_amount: i128) {
+        env.events()
+            .publish((Self::project_cancelled_event(env),), (project_id, refunded_amount));
+    }
+
+    pub fn emit_project_completed(env: &Env, project_id: u32) {
+        env.events()
+            .publish((Self::project_completed_event(env),), project_id);
     }
 }

@@ -4,6 +4,7 @@ extern crate std;
 
 use crate::{
     Error, StallionContract, StallionContractClient, Status,
+    MilestoneData, ProjectStatus, ProjectType,
     utils::{self, adjust_for_decimals, get_token_decimals},
 };
 use soroban_sdk::{
@@ -12,6 +13,10 @@ use soroban_sdk::{
     token::{StellarAssetClient as TokenAdminClient, TokenClient},
     vec,
 };
+
+// ========================================
+// TEST SETUP HELPERS
+// ========================================
 
 fn create_token_contract(e: &'_ Env) -> (TokenClient<'_>, Address) {
     e.mock_all_auths();
@@ -56,6 +61,10 @@ fn setup_test(
     let client = StallionContractClient::new(&env, &contract_id);
     (client, token, distributor, fee_account, admin, contract_id)
 }
+
+// ========================================
+// EVENT VERIFICATION HELPERS
+// ========================================
 
 fn verify_bounty_created_event(env: &Env, contract_id: &Address, bounty_id: &u32) {
     let event = env
@@ -188,12 +197,20 @@ fn verify_constructor_events(
     assert_eq!(Address::from_val(env, &data), fee_account.clone());
 }
 
+// ========================================
+// CONSTRUCTOR & ADMIN TESTS
+// ========================================
+
 #[test]
 fn test_constructor() {
     let env = Env::default();
     let (_client, _token, _distributor, fee_account, admin, contract_id) = setup_test(&env);
     verify_constructor_events(&env, &contract_id, &admin, &fee_account);
 }
+
+// ========================================
+// BOUNTY CREATION TESTS
+// ========================================
 
 #[test]
 fn test_bounty_creation() {
@@ -256,6 +273,10 @@ fn test_bounty_creation() {
     assert!(result.is_err());
 }
 
+// ========================================
+// BOUNTY SUBMISSION TESTS
+// ========================================
+
 #[test]
 fn test_bounty_submissions() {
     let env = Env::default();
@@ -303,6 +324,10 @@ fn test_bounty_submissions() {
         client.try_apply_to_bounty(&applicant, &bounty_id, &String::from_str(&env, "link3"));
     assert!(result.is_err());
 }
+
+// ========================================
+// WINNER SELECTION & DISTRIBUTION TESTS
+// ========================================
 
 #[test]
 fn test_winner_selection() {
@@ -360,6 +385,10 @@ fn test_winner_selection() {
     assert_eq!(token.balance(&fee_account), platform_fee); // Fee paid upfront
 }
 
+// ========================================
+// AUTO-DISTRIBUTION TESTS
+// ========================================
+
 #[test]
 fn test_auto_distribution() {
     let env = Env::default();
@@ -409,6 +438,10 @@ fn test_auto_distribution() {
     assert_eq!(token.balance(&applicant2), reward_per_applicant);
     assert_eq!(token.balance(&fee_account), platform_fee); // Fee paid upfront
 }
+
+// ========================================
+// BOUNTY QUERY & GETTER TESTS
+// ========================================
 
 #[test]
 fn test_get_active_bounties() {
@@ -663,6 +696,10 @@ fn test_getters() {
     assert_eq!(bounty.submissions, submissions);
 }
 
+// ========================================
+// SUBMISSION UPDATE TESTS
+// ========================================
+
 #[test]
 fn test_update_submission() {
     let env = Env::default();
@@ -762,6 +799,10 @@ fn test_update_submission() {
         "Should not be able to update submission after deadline"
     );
 }
+
+// ========================================
+// BOUNTY UPDATE & DELETE TESTS
+// ========================================
 
 #[test]
 fn test_update_and_delete_bounty() {
@@ -991,6 +1032,10 @@ fn test_admin_functions() {
     assert!(result.is_err());
 }
 
+// ========================================
+// BOUNTY CLOSE TESTS
+// ========================================
+
 #[test]
 fn test_close_bounty() {
     let env = Env::default();
@@ -1096,4 +1141,591 @@ fn test_close_bounty() {
     // Test 8: Verify closed bounty does NOT appear in active bounties
     let active_bounties = client.get_active_bounties();
     assert!(!active_bounties.contains(&bounty_id1));
+}
+
+// ========================================
+// PROJECT CREATION TESTS - GIG
+// ========================================
+
+#[test]
+fn test_create_project_gig() {
+    let env = Env::default();
+    let (client, token, distributor, fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 400, order: 1 },
+        MilestoneData { amount: 300, order: 2 },
+        MilestoneData { amount: 300, order: 3 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    assert_eq!(project_id, 1);
+
+    let project = client.get_project(&project_id);
+    assert_eq!(project.owner, owner);
+    assert_eq!(project.project_type, ProjectType::Gig);
+    assert_eq!(project.total_reward, total_reward);
+    assert_eq!(project.remaining_escrow, total_reward);
+    assert_eq!(project.status, ProjectStatus::Active);
+    assert_eq!(project.milestones.len(), 3);
+
+    let adjusted_fee = adjust_for_decimals(platform_fee, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&fee_account), adjusted_fee);
+}
+
+#[test]
+fn test_create_project_gig_invalid_milestones() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 400, order: 1 },
+        MilestoneData { amount: 300, order: 2 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let result = client.try_create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    assert_eq!(result, Err(Ok(Error::InvalidMilestones)));
+}
+
+// ========================================
+// PROJECT CREATION TESTS - JOB
+// ========================================
+
+#[test]
+fn test_create_project_job() {
+    let env = Env::default();
+    let (client, token, distributor, fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let reward_amount = 500;
+    let platform_fee = 25;
+
+    let token_amount = adjust_for_decimals(
+        platform_fee,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_job(
+        &owner,
+        &token.address,
+        &reward_amount,
+        &platform_fee,
+        &deadline,
+    );
+
+    assert_eq!(project_id, 1);
+
+    let project = client.get_project(&project_id);
+    assert_eq!(project.owner, owner);
+    assert_eq!(project.project_type, ProjectType::Job);
+    assert_eq!(project.total_reward, reward_amount);
+    assert_eq!(project.remaining_escrow, 0);
+    assert_eq!(project.status, ProjectStatus::Active);
+    assert_eq!(project.milestones.len(), 0);
+
+    let adjusted_fee = adjust_for_decimals(platform_fee, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&fee_account), adjusted_fee);
+}
+
+// ========================================
+// MILESTONE PAYMENT TESTS
+// ========================================
+
+#[test]
+fn test_release_milestone_payment() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let contributor = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 600, order: 1 },
+        MilestoneData { amount: 400, order: 2 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+
+    let project = client.get_project(&project_id);
+    assert_eq!(project.remaining_escrow, 400);
+    assert_eq!(project.status, ProjectStatus::Active);
+    assert!(project.milestones.get(0).unwrap().is_paid);
+    assert!(!project.milestones.get(1).unwrap().is_paid);
+
+    let adjusted_amount = adjust_for_decimals(600, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&contributor), adjusted_amount);
+}
+
+#[test]
+fn test_release_all_milestones_completes_project() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let contributor = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 600, order: 1 },
+        MilestoneData { amount: 400, order: 2 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+    client.release_milestone_payment(&owner, &project_id, &2, &contributor, &400);
+
+    let project = client.get_project(&project_id);
+    assert_eq!(project.remaining_escrow, 0);
+    assert_eq!(project.status, ProjectStatus::Completed);
+    assert!(project.milestones.get(0).unwrap().is_paid);
+    assert!(project.milestones.get(1).unwrap().is_paid);
+
+    let adjusted_total = adjust_for_decimals(1000, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&contributor), adjusted_total);
+}
+
+#[test]
+fn test_release_milestone_payment_unauthorized() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let not_owner = Address::generate(&env);
+    let contributor = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 1000, order: 1 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    let result = client.try_release_milestone_payment(&not_owner, &project_id, &1, &contributor, &1000);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_release_milestone_payment_already_paid() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let contributor = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 600, order: 1 },
+        MilestoneData { amount: 400, order: 2 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+
+    let result = client.try_release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+    assert_eq!(result, Err(Ok(Error::MilestoneAlreadyPaid)));
+}
+
+// ========================================
+// PROJECT CANCELLATION TESTS
+// ========================================
+
+#[test]
+fn test_cancel_project_gig() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 600, order: 1 },
+        MilestoneData { amount: 400, order: 2 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    let initial_balance = token.balance(&owner);
+
+    let refunded = client.cancel_project_gig(&owner, &project_id);
+    assert_eq!(refunded, total_reward);
+
+    let project = client.get_project(&project_id);
+    assert_eq!(project.status, ProjectStatus::Cancelled);
+    assert_eq!(project.remaining_escrow, 0);
+
+    let adjusted_refund = adjust_for_decimals(total_reward, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&owner), initial_balance + adjusted_refund);
+}
+
+#[test]
+fn test_cancel_project_gig_partial_refund() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let contributor = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 600, order: 1 },
+        MilestoneData { amount: 400, order: 2 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+
+    let initial_balance = token.balance(&owner);
+
+    let refunded = client.cancel_project_gig(&owner, &project_id);
+    assert_eq!(refunded, 400);
+
+    let project = client.get_project(&project_id);
+    assert_eq!(project.status, ProjectStatus::Cancelled);
+    assert_eq!(project.remaining_escrow, 0);
+
+    let adjusted_refund = adjust_for_decimals(400, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&owner), initial_balance + adjusted_refund);
+}
+
+#[test]
+fn test_cancel_project_gig_unauthorized() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let not_owner = Address::generate(&env);
+    let total_reward = 1000;
+    let platform_fee = 50;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 1000, order: 1 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    let result = client.try_cancel_project_gig(&not_owner, &project_id);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+// ========================================
+// PROJECT QUERY & GETTER TESTS
+// ========================================
+
+#[test]
+fn test_get_projects() {
+    let env = Env::default();
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner1 = Address::generate(&env);
+    let owner2 = Address::generate(&env);
+
+    let gig_reward = 1000;
+    let gig_fee = 50;
+    let job_reward = 500;
+    let job_fee = 25;
+
+    let gig_total = adjust_for_decimals(gig_reward + gig_fee, get_token_decimals(&env, &token.address));
+    let job_total = adjust_for_decimals(job_fee, get_token_decimals(&env, &token.address));
+
+    token.transfer(&distributor, &owner1, &gig_total);
+    token.transfer(&distributor, &owner2, &job_total);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 1000, order: 1 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id1 = client.create_project_gig(
+        &owner1,
+        &token.address,
+        &gig_reward,
+        &milestones,
+        &deadline,
+        &gig_fee,
+    );
+
+    let project_id2 = client.create_project_job(
+        &owner2,
+        &token.address,
+        &job_reward,
+        &job_fee,
+        &deadline,
+    );
+
+    let all_projects = client.get_projects();
+    assert_eq!(all_projects.len(), 2);
+    assert!(all_projects.contains(&project_id1));
+    assert!(all_projects.contains(&project_id2));
+
+    let owner1_projects = client.get_owner_projects(&owner1);
+    assert_eq!(owner1_projects.len(), 1);
+    assert!(owner1_projects.contains(&project_id1));
+
+    let owner2_projects = client.get_owner_projects(&owner2);
+    assert_eq!(owner2_projects.len(), 1);
+    assert!(owner2_projects.contains(&project_id2));
+
+    let active_projects = client.get_projects_by_status(&ProjectStatus::Active);
+    assert_eq!(active_projects.len(), 2);
+}
+
+// ========================================
+// PROJECT INTEGRATION TESTS
+// ========================================
+
+#[test]
+fn test_project_lifecycle_integration() {
+    let env = Env::default();
+    let (client, token, distributor, fee_account, _admin, _contract_id) = setup_test(&env);
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let contributor1 = Address::generate(&env);
+    let contributor2 = Address::generate(&env);
+    let total_reward = 1500;
+    let platform_fee = 75;
+    let total_needed = total_reward + platform_fee;
+
+    let token_amount = adjust_for_decimals(
+        total_needed,
+        get_token_decimals(&env, &token.address),
+    );
+    token.transfer(&distributor, &owner, &token_amount);
+
+    let milestones = vec![
+        &env,
+        MilestoneData { amount: 500, order: 1 },
+        MilestoneData { amount: 600, order: 2 },
+        MilestoneData { amount: 400, order: 3 },
+    ];
+
+    let deadline = env.ledger().timestamp() + 10000;
+
+    let project_id = client.create_project_gig(
+        &owner,
+        &token.address,
+        &total_reward,
+        &milestones,
+        &deadline,
+        &platform_fee,
+    );
+
+    let adjusted_fee = adjust_for_decimals(platform_fee, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&fee_account), adjusted_fee);
+
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor1, &500);
+    let adjusted_m1 = adjust_for_decimals(500, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&contributor1), adjusted_m1);
+
+    client.release_milestone_payment(&owner, &project_id, &2, &contributor2, &600);
+    let adjusted_m2 = adjust_for_decimals(600, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&contributor2), adjusted_m2);
+
+    let project = client.get_project(&project_id);
+    assert_eq!(project.status, ProjectStatus::Active);
+    assert_eq!(project.remaining_escrow, 400);
+
+    client.release_milestone_payment(&owner, &project_id, &3, &contributor1, &400);
+
+    let project = client.get_project(&project_id);
+    assert_eq!(project.status, ProjectStatus::Completed);
+    assert_eq!(project.remaining_escrow, 0);
+
+    let adjusted_m3 = adjust_for_decimals(400, get_token_decimals(&env, &token.address));
+    assert_eq!(token.balance(&contributor1), adjusted_m1 + adjusted_m3);
+
+    let completed_projects = client.get_projects_by_status(&ProjectStatus::Completed);
+    assert_eq!(completed_projects.len(), 1);
+    assert!(completed_projects.contains(&project_id));
 }
