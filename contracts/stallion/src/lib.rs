@@ -11,7 +11,7 @@ mod utils;
 use crate::types::*;
 use crate::utils::{
     adjust_for_decimals, calculate_fee, get_token_client, get_token_decimals, is_zero_address,
-    validate_distribution_sum,
+    validate_distribution_sum, FeeType,
 };
 use events::Events;
 use storage::{admin_key, bounty_key, fee_account_key, next_id_key, next_project_id_key, project_key};
@@ -402,7 +402,7 @@ impl StallionContract {
         // Calculate fee and total amount to transfer
         owner.require_auth();
         let token_client = get_token_client(&env, token.clone());
-        let fee = calculate_fee(reward);
+        let fee = calculate_fee(reward, FeeType::Bounty);
         let total_amount = reward + fee;
 
         // Get token decimals and adjust amounts
@@ -896,7 +896,6 @@ impl StallionContract {
         total_reward: i128,
         milestones: Vec<MilestoneData>,
         deadline: u64,
-        platform_fee: i128,
     ) -> Result<u32, Error> {
         owner.require_auth();
 
@@ -905,10 +904,6 @@ impl StallionContract {
         // Validate inputs
         if total_reward <= 0 {
             return Err(Error::InvalidReward);
-        }
-
-        if platform_fee < 0 {
-            return Err(Error::InvalidAmount);
         }
 
         if milestones.is_empty() {
@@ -936,6 +931,7 @@ impl StallionContract {
         // Transfer total_reward + platform_fee from owner to contract
         let token_client = get_token_client(&env, token.clone());
         let decimals = get_token_decimals(&env, &token);
+        let platform_fee = calculate_fee(total_reward, FeeType::Gig);
         let total_amount = total_reward + platform_fee;
         let adjusted_total = adjust_for_decimals(total_amount, decimals);
         let adjusted_fee = adjust_for_decimals(platform_fee, decimals);
@@ -979,12 +975,88 @@ impl StallionContract {
         Ok(id)
     }
 
+    pub fn update_project_gig(
+        env: Env,
+        owner: Address,
+        project_id: u32,
+        new_milestones: Option<Vec<MilestoneData>>,
+        new_deadline: Option<u64>,
+    ) -> Result<(), Error> {
+        owner.require_auth();
+
+        let storage = env.storage().persistent();
+
+        let project: Option<Project> = storage.get(&project_key(project_id));
+        if project.is_none() {
+            return Err(Error::ProjectNotFound);
+        }
+
+        let mut project = project.unwrap();
+
+        if project.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+
+        if project.project_type != ProjectType::Gig {
+            return Err(Error::InvalidProjectType);
+        }
+
+        if project.status != ProjectStatus::Active {
+            return Err(Error::ProjectNotActive);
+        }
+
+        let now = env.ledger().timestamp();
+
+        if let Some(deadline) = new_deadline {
+            if deadline < project.deadline {
+                return Err(Error::InvalidDeadlineUpdate);
+            }
+            if deadline <= now {
+                return Err(Error::DeadlinePassed);
+            }
+            project.deadline = deadline;
+        }
+
+        if let Some(milestones) = new_milestones {
+            if milestones.is_empty() {
+                return Err(Error::InvalidMilestones);
+            }
+
+            let mut milestone_sum: i128 = 0;
+            for milestone in milestones.iter() {
+                if milestone.amount <= 0 {
+                    return Err(Error::InvalidAmount);
+                }
+                milestone_sum += milestone.amount;
+            }
+
+            if milestone_sum != project.total_reward {
+                return Err(Error::InvalidMilestones);
+            }
+
+            let mut milestone_infos = Vec::new(&env);
+            for milestone in milestones.iter() {
+                milestone_infos.push_back(MilestoneInfo {
+                    amount: milestone.amount,
+                    order: milestone.order,
+                    is_paid: false,
+                });
+            }
+
+            project.milestones = milestone_infos;
+            project.remaining_escrow = project.total_reward;
+        }
+
+        storage.set(&project_key(project_id), &project);
+
+        Ok(())
+    }
+
     pub fn create_project_job(
         env: Env,
         owner: Address,
         token: Address,
         reward_amount: i128,
-        platform_fee: i128,
         deadline: u64,
     ) -> Result<u32, Error> {
         owner.require_auth();
@@ -996,10 +1068,6 @@ impl StallionContract {
             return Err(Error::InvalidReward);
         }
 
-        if platform_fee < 0 {
-            return Err(Error::InvalidAmount);
-        }
-
         // Validate deadline is in the future
         let now = env.ledger().timestamp();
         if deadline <= now {
@@ -1009,6 +1077,7 @@ impl StallionContract {
         // Transfer only platform_fee from owner to contract
         let token_client = get_token_client(&env, token.clone());
         let decimals = get_token_decimals(&env, &token);
+        let platform_fee = calculate_fee(reward_amount, FeeType::Job);
         let adjusted_fee = adjust_for_decimals(platform_fee, decimals);
 
         token_client.transfer(&owner, &env.current_contract_address(), &adjusted_fee);
@@ -1038,6 +1107,52 @@ impl StallionContract {
         Events::emit_project_job_created(&env, id);
 
         Ok(id)
+    }
+
+    pub fn update_project_job(
+        env: Env,
+        owner: Address,
+        project_id: u32,
+        new_deadline: Option<u64>,
+    ) -> Result<(), Error> {
+        owner.require_auth();
+
+        let storage = env.storage().persistent();
+
+        let project: Option<Project> = storage.get(&project_key(project_id));
+        if project.is_none() {
+            return Err(Error::ProjectNotFound);
+        }
+
+        let mut project = project.unwrap();
+
+        if project.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+
+        if project.project_type != ProjectType::Job {
+            return Err(Error::InvalidProjectType);
+        }
+
+        if project.status != ProjectStatus::Active {
+            return Err(Error::ProjectNotActive);
+        }
+
+        let now = env.ledger().timestamp();
+
+        if let Some(deadline) = new_deadline {
+            if deadline < project.deadline {
+                return Err(Error::InvalidDeadlineUpdate);
+            }
+            if deadline <= now {
+                return Err(Error::DeadlinePassed);
+            }
+            project.deadline = deadline;
+        }
+
+        storage.set(&project_key(project_id), &project);
+
+        Ok(())
     }
 
     pub fn release_milestone_payment(

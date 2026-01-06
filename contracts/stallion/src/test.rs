@@ -5,7 +5,7 @@ extern crate std;
 use crate::{
     Error, StallionContract, StallionContractClient, Status,
     MilestoneData, ProjectStatus, ProjectType,
-    utils::{self, adjust_for_decimals, get_token_decimals},
+    utils::{self, adjust_for_decimals, get_token_decimals, FeeType},
 };
 use soroban_sdk::{
     Address, Env, FromVal, IntoVal, String, Symbol, Vec,
@@ -220,7 +220,7 @@ fn test_bounty_creation() {
 
     // Define token amount with decimals - 1000 tokens with 7 decimals
     let user_friendly_amount = 1000; // Original token amount for contract input
-    let fee = utils::calculate_fee(user_friendly_amount);
+    let fee = utils::calculate_fee(user_friendly_amount, FeeType::Bounty);
     let total_needed = user_friendly_amount + fee; // Need reward + fee
     let token_amount = adjust_for_decimals(
         total_needed,
@@ -284,7 +284,7 @@ fn test_bounty_submissions() {
     env.mock_all_auths();
 
     let user_friendly_amount = 1000; // Original token amount for contract input
-    let fee = utils::calculate_fee(user_friendly_amount);
+    let fee = utils::calculate_fee(user_friendly_amount, FeeType::Bounty);
     let total_needed = user_friendly_amount + fee; // Need reward + fee
     let token_amount = adjust_for_decimals(
         total_needed,
@@ -336,7 +336,7 @@ fn test_winner_selection() {
     env.mock_all_auths();
 
     let user_friendly_amount = 1000; // Original token amount for contract input
-    let fee = utils::calculate_fee(user_friendly_amount);
+    let fee = utils::calculate_fee(user_friendly_amount, FeeType::Bounty);
     let total_needed = user_friendly_amount + fee; // Need reward + fee
     let token_amount = adjust_for_decimals(
         total_needed,
@@ -396,7 +396,7 @@ fn test_auto_distribution() {
     env.mock_all_auths();
 
     let user_friendly_amount = 1000; // Original token amount for contract input
-    let fee = utils::calculate_fee(user_friendly_amount);
+    let fee = utils::calculate_fee(user_friendly_amount, FeeType::Bounty);
     let total_needed = user_friendly_amount + fee; // Need reward + fee
     let token_amount = adjust_for_decimals(
         total_needed,
@@ -450,7 +450,7 @@ fn test_get_active_bounties() {
     env.mock_all_auths();
 
     let user_friendly_amount = 1000; // Amount per bounty in user-friendly format
-    let fee_per_bounty = utils::calculate_fee(user_friendly_amount);
+    let fee_per_bounty = utils::calculate_fee(user_friendly_amount, FeeType::Bounty);
     let total_per_bounty = user_friendly_amount + fee_per_bounty;
     // Need enough for 3 bounties (reward + fee each)
     let token_amount = adjust_for_decimals(total_per_bounty * 3, get_token_decimals(&env, &token.address));
@@ -522,9 +522,9 @@ fn test_getters() {
     let bounty3_amount = 750;
 
     // Calculate total needed including fees
-    let bounty1_fee = utils::calculate_fee(bounty1_amount);
-    let bounty2_fee = utils::calculate_fee(bounty2_amount);
-    let bounty3_fee = utils::calculate_fee(bounty3_amount);
+    let bounty1_fee = utils::calculate_fee(bounty1_amount, FeeType::Bounty);
+    let bounty2_fee = utils::calculate_fee(bounty2_amount, FeeType::Bounty);
+    let bounty3_fee = utils::calculate_fee(bounty3_amount, FeeType::Bounty);
     
     // Owner1 needs: bounty1 (1000+50) + bounty2 (500+25) = 1575
     let owner1_total = (bounty1_amount + bounty1_fee) + (bounty2_amount + bounty2_fee);
@@ -707,7 +707,7 @@ fn test_update_submission() {
     env.mock_all_auths();
 
     let bounty_amount = 1000;
-    let fee = utils::calculate_fee(bounty_amount);
+    let fee = utils::calculate_fee(bounty_amount, FeeType::Bounty);
     let total_needed = bounty_amount + fee;
     let transfer_amount = adjust_for_decimals(total_needed, get_token_decimals(&env, &token.address));
 
@@ -818,8 +818,8 @@ fn test_update_and_delete_bounty() {
     let user_friendly_amount2 = 500;
     
     // Calculate fees and total needed
-    let fee1 = utils::calculate_fee(user_friendly_amount1);
-    let fee2 = utils::calculate_fee(user_friendly_amount2);
+    let fee1 = utils::calculate_fee(user_friendly_amount1, FeeType::Bounty);
+    let fee2 = utils::calculate_fee(user_friendly_amount2, FeeType::Bounty);
     let total_needed = (user_friendly_amount1 + fee1) + (user_friendly_amount2 + fee2);
 
     // Fund the owner with some tokens - ensure enough for our tests (2 bounties)
@@ -1155,7 +1155,7 @@ fn test_create_project_gig() {
 
     let owner = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1179,7 +1179,6 @@ fn test_create_project_gig() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     assert_eq!(project_id, 1);
@@ -1204,7 +1203,7 @@ fn test_create_project_gig_invalid_milestones() {
 
     let owner = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1227,7 +1226,6 @@ fn test_create_project_gig_invalid_milestones() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     assert_eq!(result, Err(Ok(Error::InvalidMilestones)));
@@ -1245,7 +1243,7 @@ fn test_create_project_job() {
 
     let owner = Address::generate(&env);
     let reward_amount = 500;
-    let platform_fee = 25;
+    let platform_fee = 10; // 2% of 500
 
     let token_amount = adjust_for_decimals(
         platform_fee,
@@ -1259,7 +1257,6 @@ fn test_create_project_job() {
         &owner,
         &token.address,
         &reward_amount,
-        &platform_fee,
         &deadline,
     );
 
@@ -1290,7 +1287,7 @@ fn test_release_milestone_payment() {
     let owner = Address::generate(&env);
     let contributor = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1313,7 +1310,6 @@ fn test_release_milestone_payment() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
@@ -1337,7 +1333,7 @@ fn test_release_all_milestones_completes_project() {
     let owner = Address::generate(&env);
     let contributor = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1360,7 +1356,6 @@ fn test_release_all_milestones_completes_project() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
@@ -1386,7 +1381,7 @@ fn test_release_milestone_payment_unauthorized() {
     let not_owner = Address::generate(&env);
     let contributor = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1408,7 +1403,6 @@ fn test_release_milestone_payment_unauthorized() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     let result = client.try_release_milestone_payment(&not_owner, &project_id, &1, &contributor, &1000);
@@ -1424,7 +1418,7 @@ fn test_release_milestone_payment_already_paid() {
     let owner = Address::generate(&env);
     let contributor = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1447,7 +1441,6 @@ fn test_release_milestone_payment_already_paid() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
@@ -1468,7 +1461,7 @@ fn test_cancel_project_gig() {
 
     let owner = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1491,7 +1484,6 @@ fn test_cancel_project_gig() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     let initial_balance = token.balance(&owner);
@@ -1516,7 +1508,7 @@ fn test_cancel_project_gig_partial_refund() {
     let owner = Address::generate(&env);
     let contributor = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1539,7 +1531,6 @@ fn test_cancel_project_gig_partial_refund() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
@@ -1566,7 +1557,7 @@ fn test_cancel_project_gig_unauthorized() {
     let owner = Address::generate(&env);
     let not_owner = Address::generate(&env);
     let total_reward = 1000;
-    let platform_fee = 50;
+    let platform_fee = 30; // 3% of 1000
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1588,7 +1579,6 @@ fn test_cancel_project_gig_unauthorized() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     let result = client.try_cancel_project_gig(&not_owner, &project_id);
@@ -1609,9 +1599,9 @@ fn test_get_projects() {
     let owner2 = Address::generate(&env);
 
     let gig_reward = 1000;
-    let gig_fee = 50;
+    let gig_fee = 30; // 3% of 1000
     let job_reward = 500;
-    let job_fee = 25;
+    let job_fee = 10; // 2% of 500;
 
     let gig_total = adjust_for_decimals(gig_reward + gig_fee, get_token_decimals(&env, &token.address));
     let job_total = adjust_for_decimals(job_fee, get_token_decimals(&env, &token.address));
@@ -1632,14 +1622,12 @@ fn test_get_projects() {
         &gig_reward,
         &milestones,
         &deadline,
-        &gig_fee,
     );
 
     let project_id2 = client.create_project_job(
         &owner2,
         &token.address,
         &job_reward,
-        &job_fee,
         &deadline,
     );
 
@@ -1674,7 +1662,7 @@ fn test_project_lifecycle_integration() {
     let contributor1 = Address::generate(&env);
     let contributor2 = Address::generate(&env);
     let total_reward = 1500;
-    let platform_fee = 75;
+    let platform_fee = 45; // 3% of 1500
     let total_needed = total_reward + platform_fee;
 
     let token_amount = adjust_for_decimals(
@@ -1698,7 +1686,6 @@ fn test_project_lifecycle_integration() {
         &total_reward,
         &milestones,
         &deadline,
-        &platform_fee,
     );
 
     let adjusted_fee = adjust_for_decimals(platform_fee, get_token_decimals(&env, &token.address));

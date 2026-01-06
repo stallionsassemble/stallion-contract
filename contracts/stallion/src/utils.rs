@@ -1,10 +1,22 @@
 use soroban_sdk::{Address, Env, String, Vec, token};
 
 // Constants
-pub const PLATFORM_FEE_PERCENT: u32 = 5;
+pub const BOUNTY_PLATFORM_FEE_PERCENT: i128 = 5;
+pub const GIG_PLATFORM_FEE_PERCENT: i128 = 3;
+pub const JOB_PLATFORM_FEE_PERCENT: i128 = 2;
 
-pub fn calculate_fee(reward: i128) -> i128 {
-    reward * PLATFORM_FEE_PERCENT as i128 / 100
+pub enum FeeType {
+    Bounty,
+    Gig,
+    Job,
+}
+
+pub fn calculate_fee(reward: i128, fee_type: FeeType) -> i128 {
+    match fee_type {
+        FeeType::Bounty => reward * BOUNTY_PLATFORM_FEE_PERCENT as i128 / 100,
+        FeeType::Gig => reward * GIG_PLATFORM_FEE_PERCENT as i128 / 100,
+        FeeType::Job => reward * JOB_PLATFORM_FEE_PERCENT as i128 / 100,
+    }
 }
 
 pub fn get_token_client(env: &'_ Env, token_address: Address) -> token::Client<'_> {
