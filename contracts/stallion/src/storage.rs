@@ -23,3 +23,11 @@ pub fn next_project_id_key() -> DataKey {
 pub fn project_key(id: u32) -> (DataKey, u32) {
     (DataKey::Project, id)
 }
+
+pub fn next_hackathon_id_key() -> DataKey {
+    DataKey::NextHackathonId
+}
+
+pub fn hackathon_key(id: u32) -> (DataKey, u32) {
+    (DataKey::Hackathon, id)
+}

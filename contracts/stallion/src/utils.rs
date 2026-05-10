@@ -4,11 +4,13 @@ use soroban_sdk::{Address, Env, String, Vec, token};
 pub const BOUNTY_PLATFORM_FEE_PERCENT: i128 = 5;
 pub const GIG_PLATFORM_FEE_PERCENT: i128 = 3;
 pub const JOB_PLATFORM_FEE_PERCENT: i128 = 2;
+pub const HACKATHON_PLATFORM_FEE_PERCENT: i128 = 5;
 
 pub enum FeeType {
     Bounty,
     Gig,
     Job,
+    Hackathon,
 }
 
 pub fn calculate_fee(reward: i128, fee_type: FeeType) -> i128 {
@@ -16,6 +18,7 @@ pub fn calculate_fee(reward: i128, fee_type: FeeType) -> i128 {
         FeeType::Bounty => reward * BOUNTY_PLATFORM_FEE_PERCENT as i128 / 100,
         FeeType::Gig => reward * GIG_PLATFORM_FEE_PERCENT as i128 / 100,
         FeeType::Job => reward * JOB_PLATFORM_FEE_PERCENT as i128 / 100,
+        FeeType::Hackathon => reward * HACKATHON_PLATFORM_FEE_PERCENT as i128 / 100,
     }
 }
 

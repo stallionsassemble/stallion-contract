@@ -48,6 +48,15 @@ pub enum Error {
     
     // System errors
     InternalError = 28,
+
+    // Hackathon errors
+    HackathonNotFound = 29,
+    HackathonNotActive = 30,
+    HackathonDeadlinePassed = 31,
+    InvalidPrizePool = 32,
+    HackathonNotCompleted = 33,
+    InvalidPosition = 34,
+    AllPositionsNotFilled = 35,
 }
 
 #[contracttype]
@@ -117,6 +126,34 @@ pub struct Project {
     pub milestones: Vec<MilestoneInfo>,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum HackathonStatus {
+    Active,
+    Completed,
+    Cancelled,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HackathonPrize {
+    pub position: u32,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Hackathon {
+    pub admin: Address,           
+    pub token: Address,
+    pub total_budget: i128,
+    pub remaining_escrow: i128,
+    pub deadline: u64,
+    pub prize_pool: Vec<HackathonPrize>, 
+    pub status: HackathonStatus,
+    pub winners: Map<u32, Address>,
+}
+
 #[derive(Clone, Copy)]
 #[repr(u32)]
 pub enum DataKey {
@@ -127,6 +164,8 @@ pub enum DataKey {
     FeeAccount = 5,
     NextProjectId = 6,
     Project = 7,
+    NextHackathonId = 8,
+    Hackathon = 9,
 }
 
 impl TryFromVal<Env, DataKey> for Val {

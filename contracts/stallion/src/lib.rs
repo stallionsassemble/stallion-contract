@@ -1308,6 +1308,323 @@ impl StallionContract {
 
         Ok(refund_amount)
     }
+    // ========================================
+    // HACKATHON FUNCTIONS
+    // ========================================
+
+    pub fn create_hackathon(
+        env: Env,
+        admin: Address,
+        token: Address,
+        total_budget: i128,
+        prize_pool: Vec<HackathonPrize>,
+        deadline: u64,
+    ) -> Result<u32, Error> {
+        let storage = env.storage().persistent();
+        
+        let contract_admin = Self::get_admin(&env);
+        if admin != contract_admin {
+            return Err(Error::Unauthorized);
+        }
+        admin.require_auth();
+
+        if total_budget <= 0 {
+            return Err(Error::InvalidReward);
+        }
+
+        let now = env.ledger().timestamp();
+        if deadline <= now {
+            return Err(Error::DeadlinePassed);
+        }
+
+        let mut sum = 0;
+        let mut positions = Map::new(&env);
+        for prize in prize_pool.iter() {
+            if prize.amount <= 0 {
+                return Err(Error::InvalidAmount);
+            }
+            if positions.contains_key(prize.position) {
+                return Err(Error::InvalidPosition);
+            }
+            positions.set(prize.position, true);
+            sum += prize.amount;
+        }
+
+        if sum != total_budget {
+            return Err(Error::InvalidPrizePool);
+        }
+
+        let fee = calculate_fee(total_budget, FeeType::Hackathon);
+        let total_amount = total_budget + fee;
+
+        let token_client = get_token_client(&env, token.clone());
+        let decimals = get_token_decimals(&env, &token);
+        
+        let adjusted_total = adjust_for_decimals(total_amount, decimals);
+        let adjusted_fee = adjust_for_decimals(fee, decimals);
+
+        token_client.transfer(&admin, &env.current_contract_address(), &adjusted_total);
+
+        let fee_account = Self::get_fee_account(&env);
+        token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
+
+        let id: u32 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(1);
+        let next = id + 1;
+        storage.set(&crate::storage::next_hackathon_id_key(), &next);
+
+        let hackathon = Hackathon {
+            admin: admin.clone(),
+            token: token.clone(),
+            total_budget,
+            remaining_escrow: total_budget,
+            deadline,
+            prize_pool,
+            status: HackathonStatus::Active,
+            winners: Map::new(&env),
+        };
+
+        storage.set(&crate::storage::hackathon_key(id), &hackathon);
+        Events::emit_hackathon_created(&env, id, total_budget);
+
+        Ok(id)
+    }
+
+    pub fn update_hackathon(
+        env: Env,
+        admin: Address,
+        hackathon_id: u32,
+        new_deadline: Option<u64>,
+        new_prize_pool: Option<Vec<HackathonPrize>>,
+    ) -> Result<(), Error> {
+        let storage = env.storage().persistent();
+
+        let contract_admin = Self::get_admin(&env);
+        if admin != contract_admin {
+            return Err(Error::Unauthorized);
+        }
+        admin.require_auth();
+
+        let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
+        if hackathon_val.is_none() {
+            return Err(Error::HackathonNotFound);
+        }
+
+        let mut hackathon = hackathon_val.unwrap();
+
+        if hackathon.status != HackathonStatus::Active {
+            return Err(Error::HackathonNotActive);
+        }
+
+        let mut updated_fields: Vec<Symbol> = Vec::new(&env);
+
+        if let Some(deadline) = new_deadline {
+            let now = env.ledger().timestamp();
+            if deadline < hackathon.deadline {
+                return Err(Error::InvalidDeadlineUpdate);
+            }
+            if deadline <= now {
+                return Err(Error::DeadlinePassed);
+            }
+            hackathon.deadline = deadline;
+            updated_fields.push_back(Symbol::new(&env, "deadline"));
+        }
+
+        if let Some(prize_pool) = new_prize_pool {
+            let mut sum = 0;
+            let mut positions = Map::new(&env);
+            for prize in prize_pool.iter() {
+                if prize.amount <= 0 {
+                    return Err(Error::InvalidAmount);
+                }
+                if positions.contains_key(prize.position) {
+                    return Err(Error::InvalidPosition);
+                }
+                positions.set(prize.position, true);
+                sum += prize.amount;
+            }
+
+            if sum != hackathon.total_budget {
+                return Err(Error::InvalidPrizePool);
+            }
+
+            hackathon.prize_pool = prize_pool;
+            updated_fields.push_back(Symbol::new(&env, "prize_pool"));
+        }
+
+        storage.set(&crate::storage::hackathon_key(hackathon_id), &hackathon);
+        Events::emit_hackathon_updated(&env, hackathon_id, updated_fields);
+
+        Ok(())
+    }
+
+    pub fn cancel_hackathon(
+        env: Env,
+        admin: Address,
+        hackathon_id: u32,
+    ) -> Result<i128, Error> {
+        let storage = env.storage().persistent();
+
+        let contract_admin = Self::get_admin(&env);
+        if admin != contract_admin {
+            return Err(Error::Unauthorized);
+        }
+        admin.require_auth();
+
+        let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
+        if hackathon_val.is_none() {
+            return Err(Error::HackathonNotFound);
+        }
+
+        let mut hackathon = hackathon_val.unwrap();
+
+        if hackathon.status != HackathonStatus::Active {
+            return Err(Error::HackathonNotActive);
+        }
+
+        let refund_amount = hackathon.remaining_escrow;
+
+        if refund_amount > 0 {
+            let token_client = get_token_client(&env, hackathon.token.clone());
+            let decimals = get_token_decimals(&env, &hackathon.token);
+            let adjusted_refund = adjust_for_decimals(refund_amount, decimals);
+            token_client.transfer(&env.current_contract_address(), &admin, &adjusted_refund);
+        }
+
+        hackathon.status = HackathonStatus::Cancelled;
+        hackathon.remaining_escrow = 0;
+
+        storage.set(&crate::storage::hackathon_key(hackathon_id), &hackathon);
+        Events::emit_hackathon_cancelled(&env, hackathon_id, refund_amount);
+
+        Ok(refund_amount)
+    }
+
+    pub fn distribute_hackathon_prizes(
+        env: Env,
+        admin: Address,
+        hackathon_id: u32,
+        winners: Vec<(u32, Address)>,
+    ) -> Result<(), Error> {
+        let storage = env.storage().persistent();
+
+        let contract_admin = Self::get_admin(&env);
+        if admin != contract_admin {
+            return Err(Error::Unauthorized);
+        }
+        admin.require_auth();
+
+        let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
+        if hackathon_val.is_none() {
+            return Err(Error::HackathonNotFound);
+        }
+
+        let mut hackathon = hackathon_val.unwrap();
+
+        if hackathon.status != HackathonStatus::Active {
+            return Err(Error::HackathonNotActive);
+        }
+
+        // Validate that all positions in the prize pool are provided
+        let mut provided_winners = Map::new(&env);
+        for (position, winner_addr) in winners.iter() {
+            provided_winners.set(position, winner_addr);
+        }
+
+        for prize in hackathon.prize_pool.iter() {
+            if !provided_winners.contains_key(prize.position) {
+                return Err(Error::AllPositionsNotFilled);
+            }
+        }
+
+        let token_client = get_token_client(&env, hackathon.token.clone());
+        let decimals = get_token_decimals(&env, &hackathon.token);
+
+        for prize in hackathon.prize_pool.iter() {
+            let winner_addr = provided_winners.get(prize.position).unwrap();
+            let adjusted_prize = adjust_for_decimals(prize.amount, decimals);
+            token_client.transfer(&env.current_contract_address(), &winner_addr, &adjusted_prize);
+            hackathon.remaining_escrow -= prize.amount;
+        }
+
+        // Refund any remaining escrow due to rounding or other reasons
+        let refund = hackathon.remaining_escrow;
+        if refund > 0 {
+            let adjusted_refund = adjust_for_decimals(refund, decimals);
+            token_client.transfer(&env.current_contract_address(), &admin, &adjusted_refund);
+            hackathon.remaining_escrow = 0;
+        }
+
+        hackathon.status = HackathonStatus::Completed;
+        hackathon.winners = provided_winners;
+
+        storage.set(&crate::storage::hackathon_key(hackathon_id), &hackathon);
+        Events::emit_hackathon_prizes_distributed(&env, hackathon_id);
+
+        Ok(())
+    }
+
+    pub fn get_hackathon(env: Env, hackathon_id: u32) -> Result<Hackathon, Error> {
+        let storage = env.storage().persistent();
+        let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
+        if hackathon.is_none() {
+            return Err(Error::HackathonNotFound);
+        }
+        Ok(hackathon.unwrap())
+    }
+
+    pub fn get_hackathons(env: Env) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(1);
+        let mut hackathons = Vec::new(&env);
+        for id in 1..next_id {
+            let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(id));
+            if hackathon.is_none() {
+                continue;
+            }
+            hackathons.push_back(id);
+        }
+        hackathons
+    }
+
+    pub fn get_hackathon_status(env: Env, hackathon_id: u32) -> Result<HackathonStatus, Error> {
+        let storage = env.storage().persistent();
+        let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
+        if hackathon.is_none() {
+            return Err(Error::HackathonNotFound);
+        }
+        Ok(hackathon.unwrap().status)
+    }
+
+    pub fn get_hackathons_count(env: Env) -> u32 {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(1);
+        let mut count = 0;
+        for id in 1..next_id {
+            let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(id));
+            if hackathon.is_none() {
+                continue;
+            }
+            count += 1;
+        }
+        count
+    }
+
+    pub fn get_hackathons_by_status(env: Env, status: HackathonStatus) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let next_id: u32 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(1);
+        let mut hackathons = Vec::new(&env);
+        for id in 1..next_id {
+            let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(id));
+            if hackathon.is_none() {
+                continue;
+            }
+            let h = hackathon.unwrap();
+            if h.status == status {
+                hackathons.push_back(id);
+            }
+        }
+        hackathons
+    }
 }
 
 mod test;
