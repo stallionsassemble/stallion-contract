@@ -144,7 +144,7 @@ pub struct HackathonPrize {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Hackathon {
-    pub admin: Address,           
+    pub owner: Address,           
     pub token: Address,
     pub total_budget: i128,
     pub remaining_escrow: i128,

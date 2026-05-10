@@ -1314,7 +1314,7 @@ impl StallionContract {
 
     pub fn create_hackathon(
         env: Env,
-        admin: Address,
+        owner: Address,
         token: Address,
         total_budget: i128,
         prize_pool: Vec<HackathonPrize>,
@@ -1322,11 +1322,7 @@ impl StallionContract {
     ) -> Result<u32, Error> {
         let storage = env.storage().persistent();
         
-        // let contract_admin = Self::get_admin(&env);
-        // if admin != contract_admin {
-        //     return Err(Error::Unauthorized);
-        // }
-        // admin.require_auth();
+        owner.require_auth();
 
         if total_budget <= 0 {
             return Err(Error::InvalidReward);
@@ -1363,7 +1359,7 @@ impl StallionContract {
         let adjusted_total = adjust_for_decimals(total_amount, decimals);
         let adjusted_fee = adjust_for_decimals(fee, decimals);
 
-        token_client.transfer(&admin, &env.current_contract_address(), &adjusted_total);
+        token_client.transfer(&owner, &env.current_contract_address(), &adjusted_total);
 
         let fee_account = Self::get_fee_account(&env);
         token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
@@ -1373,7 +1369,7 @@ impl StallionContract {
         storage.set(&crate::storage::next_hackathon_id_key(), &next);
 
         let hackathon = Hackathon {
-            admin: admin.clone(),
+            owner: owner.clone(),
             token: token.clone(),
             total_budget,
             remaining_escrow: total_budget,
@@ -1391,18 +1387,14 @@ impl StallionContract {
 
     pub fn update_hackathon(
         env: Env,
-        admin: Address,
+        owner: Address,
         hackathon_id: u32,
         new_deadline: Option<u64>,
         new_prize_pool: Option<Vec<HackathonPrize>>,
     ) -> Result<(), Error> {
         let storage = env.storage().persistent();
 
-        // let contract_admin = Self::get_admin(&env);
-        // if admin != contract_admin {
-        //     return Err(Error::Unauthorized);
-        // }
-        // admin.require_auth();
+        owner.require_auth();
 
         let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
         if hackathon_val.is_none() {
@@ -1410,6 +1402,10 @@ impl StallionContract {
         }
 
         let mut hackathon = hackathon_val.unwrap();
+
+        if hackathon.owner != owner {
+            return Err(Error::Unauthorized);
+        }
 
         if hackathon.status != HackathonStatus::Active {
             return Err(Error::HackathonNotActive);
@@ -1459,16 +1455,12 @@ impl StallionContract {
 
     pub fn cancel_hackathon(
         env: Env,
-        admin: Address,
+        owner: Address,
         hackathon_id: u32,
     ) -> Result<i128, Error> {
         let storage = env.storage().persistent();
 
-        // let contract_admin = Self::get_admin(&env);
-        // if admin != contract_admin {
-        //     return Err(Error::Unauthorized);
-        // }
-        // admin.require_auth();
+        owner.require_auth();
 
         let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
         if hackathon_val.is_none() {
@@ -1476,6 +1468,10 @@ impl StallionContract {
         }
 
         let mut hackathon = hackathon_val.unwrap();
+
+        if hackathon.owner != owner {
+            return Err(Error::Unauthorized);
+        }
 
         if hackathon.status != HackathonStatus::Active {
             return Err(Error::HackathonNotActive);
@@ -1487,7 +1483,7 @@ impl StallionContract {
             let token_client = get_token_client(&env, hackathon.token.clone());
             let decimals = get_token_decimals(&env, &hackathon.token);
             let adjusted_refund = adjust_for_decimals(refund_amount, decimals);
-            token_client.transfer(&env.current_contract_address(), &admin, &adjusted_refund);
+            token_client.transfer(&env.current_contract_address(), &owner, &adjusted_refund);
         }
 
         hackathon.status = HackathonStatus::Cancelled;
@@ -1501,17 +1497,13 @@ impl StallionContract {
 
     pub fn distribute_hackathon_prizes(
         env: Env,
-        admin: Address,
+        owner: Address,
         hackathon_id: u32,
         winners: Vec<(u32, Address)>,
     ) -> Result<(), Error> {
         let storage = env.storage().persistent();
 
-        // let contract_admin = Self::get_admin(&env);
-        // if admin != contract_admin {
-        //     return Err(Error::Unauthorized);
-        // }
-        // admin.require_auth();
+        owner.require_auth();
 
         let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
         if hackathon_val.is_none() {
@@ -1519,6 +1511,10 @@ impl StallionContract {
         }
 
         let mut hackathon = hackathon_val.unwrap();
+
+        if hackathon.owner != owner {
+            return Err(Error::Unauthorized);
+        }
 
         if hackathon.status != HackathonStatus::Active {
             return Err(Error::HackathonNotActive);
@@ -1550,7 +1546,7 @@ impl StallionContract {
         let refund = hackathon.remaining_escrow;
         if refund > 0 {
             let adjusted_refund = adjust_for_decimals(refund, decimals);
-            token_client.transfer(&env.current_contract_address(), &admin, &adjusted_refund);
+            token_client.transfer(&env.current_contract_address(), &owner, &adjusted_refund);
             hackathon.remaining_escrow = 0;
         }
 

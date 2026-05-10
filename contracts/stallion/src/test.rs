@@ -1727,6 +1727,7 @@ fn test_hackathon_creation() {
     let (client, token, distributor, fee_account, admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let organizer = Address::generate(&env);
     let total_budget = 1000;
     let platform_fee = 50; // 5% of 1000
     let total_needed = total_budget + platform_fee;
@@ -1735,7 +1736,7 @@ fn test_hackathon_creation() {
         total_needed,
         get_token_decimals(&env, &token.address),
     );
-    token.transfer(&distributor, &admin, &token_amount);
+    token.transfer(&distributor, &organizer, &token_amount);
 
     let prize_pool = vec![
         &env,
@@ -1745,7 +1746,7 @@ fn test_hackathon_creation() {
     let deadline = env.ledger().timestamp() + 10000;
 
     let hackathon_id = client.create_hackathon(
-        &admin,
+        &organizer,
         &token.address,
         &total_budget,
         &prize_pool,
@@ -1769,7 +1770,7 @@ fn test_hackathon_creation() {
         HackathonPrize { position: 2, amount: 400 },
     ];
     let result = client.try_create_hackathon(
-        &admin,
+        &organizer,
         &token.address,
         &total_budget,
         &invalid_prize_pool,
@@ -1784,7 +1785,7 @@ fn test_hackathon_creation() {
         HackathonPrize { position: 1, amount: 500 },
     ];
     let result = client.try_create_hackathon(
-        &admin,
+        &organizer,
         &token.address,
         &total_budget,
         &dup_prize_pool,
@@ -1799,10 +1800,11 @@ fn test_hackathon_update() {
     let (client, token, distributor, _fee_account, admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let organizer = Address::generate(&env);
     let total_budget = 1000;
     let fee = 50;
     let token_amount = adjust_for_decimals(total_budget + fee, get_token_decimals(&env, &token.address));
-    token.transfer(&distributor, &admin, &token_amount);
+    token.transfer(&distributor, &organizer, &token_amount);
 
     let prize_pool = vec![
         &env,
@@ -1811,7 +1813,7 @@ fn test_hackathon_update() {
     let deadline = env.ledger().timestamp() + 10000;
 
     let hackathon_id = client.create_hackathon(
-        &admin,
+        &organizer,
         &token.address,
         &total_budget,
         &prize_pool,
@@ -1826,7 +1828,7 @@ fn test_hackathon_update() {
     ];
 
     client.update_hackathon(
-        &admin,
+        &organizer,
         &hackathon_id,
         &Some(new_deadline),
         &Some(new_prize_pool.clone()),
@@ -1843,10 +1845,11 @@ fn test_hackathon_cancellation() {
     let (client, token, distributor, _fee_account, admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let organizer = Address::generate(&env);
     let total_budget = 1000;
     let fee = 50;
     let token_amount = adjust_for_decimals(total_budget + fee, get_token_decimals(&env, &token.address));
-    token.transfer(&distributor, &admin, &token_amount);
+    token.transfer(&distributor, &organizer, &token_amount);
 
     let prize_pool = vec![
         &env,
@@ -1855,16 +1858,16 @@ fn test_hackathon_cancellation() {
     let deadline = env.ledger().timestamp() + 10000;
 
     let hackathon_id = client.create_hackathon(
-        &admin,
+        &organizer,
         &token.address,
         &total_budget,
         &prize_pool,
         &deadline,
     );
 
-    let initial_balance = token.balance(&admin);
+    let initial_balance = token.balance(&organizer);
 
-    let refunded = client.cancel_hackathon(&admin, &hackathon_id);
+    let refunded = client.cancel_hackathon(&organizer, &hackathon_id);
     assert_eq!(refunded, total_budget);
 
     let hackathon = client.get_hackathon(&hackathon_id);
@@ -1872,7 +1875,7 @@ fn test_hackathon_cancellation() {
     assert_eq!(hackathon.remaining_escrow, 0);
 
     let adjusted_refund = adjust_for_decimals(total_budget, get_token_decimals(&env, &token.address));
-    assert_eq!(token.balance(&admin), initial_balance + adjusted_refund);
+    assert_eq!(token.balance(&organizer), initial_balance + adjusted_refund);
 }
 
 #[test]
@@ -1881,10 +1884,11 @@ fn test_hackathon_prize_distribution() {
     let (client, token, distributor, _fee_account, admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let organizer = Address::generate(&env);
     let total_budget = 1000;
     let fee = 50;
     let token_amount = adjust_for_decimals(total_budget + fee, get_token_decimals(&env, &token.address));
-    token.transfer(&distributor, &admin, &token_amount);
+    token.transfer(&distributor, &organizer, &token_amount);
 
     let prize_pool = vec![
         &env,
@@ -1894,7 +1898,7 @@ fn test_hackathon_prize_distribution() {
     let deadline = env.ledger().timestamp() + 10000;
 
     let hackathon_id = client.create_hackathon(
-        &admin,
+        &organizer,
         &token.address,
         &total_budget,
         &prize_pool,
@@ -1910,7 +1914,7 @@ fn test_hackathon_prize_distribution() {
         (2, winner2.clone()),
     ];
 
-    client.distribute_hackathon_prizes(&admin, &hackathon_id, &winners);
+    client.distribute_hackathon_prizes(&organizer, &hackathon_id, &winners);
 
     let hackathon = client.get_hackathon(&hackathon_id);
     assert_eq!(hackathon.status, HackathonStatus::Completed);
@@ -1929,10 +1933,11 @@ fn test_hackathon_getters() {
     let (client, token, distributor, _fee_account, admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
+    let organizer = Address::generate(&env);
     let total_budget = 1000;
     let fee = 50;
     let token_amount = adjust_for_decimals((total_budget + fee) * 2, get_token_decimals(&env, &token.address));
-    token.transfer(&distributor, &admin, &token_amount);
+    token.transfer(&distributor, &organizer, &token_amount);
 
     let prize_pool = vec![
         &env,
@@ -1940,10 +1945,10 @@ fn test_hackathon_getters() {
     ];
     let deadline = env.ledger().timestamp() + 10000;
 
-    let h1 = client.create_hackathon(&admin, &token.address, &total_budget, &prize_pool, &deadline);
-    let h2 = client.create_hackathon(&admin, &token.address, &total_budget, &prize_pool, &deadline);
+    let h1 = client.create_hackathon(&organizer, &token.address, &total_budget, &prize_pool, &deadline);
+    let h2 = client.create_hackathon(&organizer, &token.address, &total_budget, &prize_pool, &deadline);
 
-    client.cancel_hackathon(&admin, &h2);
+    client.cancel_hackathon(&organizer, &h2);
 
     let all = client.get_hackathons();
     assert_eq!(all.len(), 2);
