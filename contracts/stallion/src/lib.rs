@@ -1322,11 +1322,11 @@ impl StallionContract {
     ) -> Result<u32, Error> {
         let storage = env.storage().persistent();
         
-        let contract_admin = Self::get_admin(&env);
-        if admin != contract_admin {
-            return Err(Error::Unauthorized);
-        }
-        admin.require_auth();
+        // let contract_admin = Self::get_admin(&env);
+        // if admin != contract_admin {
+        //     return Err(Error::Unauthorized);
+        // }
+        // admin.require_auth();
 
         if total_budget <= 0 {
             return Err(Error::InvalidReward);
@@ -1398,11 +1398,11 @@ impl StallionContract {
     ) -> Result<(), Error> {
         let storage = env.storage().persistent();
 
-        let contract_admin = Self::get_admin(&env);
-        if admin != contract_admin {
-            return Err(Error::Unauthorized);
-        }
-        admin.require_auth();
+        // let contract_admin = Self::get_admin(&env);
+        // if admin != contract_admin {
+        //     return Err(Error::Unauthorized);
+        // }
+        // admin.require_auth();
 
         let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
         if hackathon_val.is_none() {
@@ -1464,11 +1464,11 @@ impl StallionContract {
     ) -> Result<i128, Error> {
         let storage = env.storage().persistent();
 
-        let contract_admin = Self::get_admin(&env);
-        if admin != contract_admin {
-            return Err(Error::Unauthorized);
-        }
-        admin.require_auth();
+        // let contract_admin = Self::get_admin(&env);
+        // if admin != contract_admin {
+        //     return Err(Error::Unauthorized);
+        // }
+        // admin.require_auth();
 
         let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
         if hackathon_val.is_none() {
@@ -1507,11 +1507,11 @@ impl StallionContract {
     ) -> Result<(), Error> {
         let storage = env.storage().persistent();
 
-        let contract_admin = Self::get_admin(&env);
-        if admin != contract_admin {
-            return Err(Error::Unauthorized);
-        }
-        admin.require_auth();
+        // let contract_admin = Self::get_admin(&env);
+        // if admin != contract_admin {
+        //     return Err(Error::Unauthorized);
+        // }
+        // admin.require_auth();
 
         let hackathon_val: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
         if hackathon_val.is_none() {
