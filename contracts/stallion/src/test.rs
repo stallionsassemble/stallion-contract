@@ -246,7 +246,7 @@ fn test_bounty_creation() {
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, Status::Active);
     // Verify that the stored reward is the user-friendly amount
-    assert_eq!(bounty.reward, user_friendly_amount);
+    assert_eq!(bounty.reward, adjust_for_decimals(user_friendly_amount, 7));
 
     // Test invalid distribution
     let result = client.try_create_bounty(
@@ -521,27 +521,24 @@ fn test_getters() {
     let bounty2_amount = 500;
     let bounty3_amount = 750;
 
-    // Calculate total needed including fees
-    let bounty1_fee = utils::calculate_fee(bounty1_amount, FeeType::Bounty);
-    let bounty2_fee = utils::calculate_fee(bounty2_amount, FeeType::Bounty);
-    let bounty3_fee = utils::calculate_fee(bounty3_amount, FeeType::Bounty);
+    // Calculate total needed including fees (on adjusted amounts)
+    let decimals = get_token_decimals(&env, &token.address);
     
-    // Owner1 needs: bounty1 (1000+50) + bounty2 (500+25) = 1575
-    let owner1_total = (bounty1_amount + bounty1_fee) + (bounty2_amount + bounty2_fee);
-    // Owner2 needs: bounty3 (750+37.5) = 787.5, round up to 788
-    let owner2_total = bounty3_amount + bounty3_fee;
+    let adj_b1_reward = adjust_for_decimals(bounty1_amount, decimals);
+    let adj_b1_fee = utils::calculate_fee(adj_b1_reward, FeeType::Bounty);
+    let adj_b1_total = adj_b1_reward + adj_b1_fee;
 
-    // Transfer tokens to owners (with decimals)
-    token.transfer(
-        &distributor,
-        &owner1,
-        &adjust_for_decimals(owner1_total, get_token_decimals(&env, &token.address)),
-    );
-    token.transfer(
-        &distributor,
-        &owner2,
-        &adjust_for_decimals(owner2_total, get_token_decimals(&env, &token.address)),
-    );
+    let adj_b2_reward = adjust_for_decimals(bounty2_amount, decimals);
+    let adj_b2_fee = utils::calculate_fee(adj_b2_reward, FeeType::Bounty);
+    let adj_b2_total = adj_b2_reward + adj_b2_fee;
+
+    let adj_b3_reward = adjust_for_decimals(bounty3_amount, decimals);
+    let adj_b3_fee = utils::calculate_fee(adj_b3_reward, FeeType::Bounty);
+    let adj_b3_total = adj_b3_reward + adj_b3_fee;
+
+    // Transfer tokens to owners
+    token.transfer(&distributor, &owner1, &(adj_b1_total + adj_b2_total));
+    token.transfer(&distributor, &owner2, &adj_b3_total);
 
     // Create second token contract and get its admin client to mint tokens
     let (token2, token2_distributor) = create_token_contract(&env);
@@ -552,12 +549,8 @@ fn test_getters() {
         &token2_distributor,
         &adjust_for_decimals(10000, get_token_decimals(&env, &token2.address)),
     );
-    // Owner1 needs bounty2 amount + fee for token2
-    token2.transfer(
-        &token2_distributor,
-        &owner1,
-        &adjust_for_decimals(bounty2_amount + bounty2_fee, get_token_decimals(&env, &token2.address)),
-    );
+    // Owner1 needs bounty2 amount + fee for token2 (already calculated adj_b2_total)
+    token2.transfer(&token2_distributor, &owner1, &adj_b2_total);
 
     // Bounty 1: Owner1, Token1
     let bounty1_id = client.create_bounty(
@@ -689,7 +682,7 @@ fn test_getters() {
     // Test full bounty getter
     let bounty = client.get_bounty(&bounty1_id);
     assert_eq!(bounty.owner, owner1);
-    assert_eq!(bounty.reward, 1000);
+    assert_eq!(bounty.reward, adjust_for_decimals(1000, 7));
     assert_eq!(bounty.status, Status::Completed);
     assert_eq!(bounty.winners, stored_winners);
     assert_eq!(bounty.applicants, applicants);
@@ -1127,7 +1120,7 @@ fn test_close_bounty() {
     let bounty = client.get_bounty(&bounty_id1);
     assert_eq!(bounty.status, Status::Closed);
     assert_eq!(bounty.owner, owner);
-    assert_eq!(bounty.reward, user_friendly_amount);
+    assert_eq!(bounty.reward, adjust_for_decimals(user_friendly_amount, 7));
 
     // Test 6: Verify closed bounty appears in owner's bounties
     let owner_bounties = client.get_owner_bounties(&owner);
@@ -1186,8 +1179,9 @@ fn test_create_project_gig() {
     let project = client.get_project(&project_id);
     assert_eq!(project.owner, owner);
     assert_eq!(project.project_type, ProjectType::Gig);
-    assert_eq!(project.total_reward, total_reward);
-    assert_eq!(project.remaining_escrow, total_reward);
+    let adjusted_reward = adjust_for_decimals(total_reward, 7);
+    assert_eq!(project.total_reward, adjusted_reward);
+    assert_eq!(project.remaining_escrow, adjusted_reward);
     assert_eq!(project.status, ProjectStatus::Active);
     assert_eq!(project.milestones.len(), 3);
 
@@ -1265,7 +1259,7 @@ fn test_create_project_job() {
     let project = client.get_project(&project_id);
     assert_eq!(project.owner, owner);
     assert_eq!(project.project_type, ProjectType::Job);
-    assert_eq!(project.total_reward, reward_amount);
+    assert_eq!(project.total_reward, adjust_for_decimals(reward_amount, 7));
     assert_eq!(project.remaining_escrow, 0);
     assert_eq!(project.status, ProjectStatus::Active);
     assert_eq!(project.milestones.len(), 0);
@@ -1312,10 +1306,12 @@ fn test_release_milestone_payment() {
         &deadline,
     );
 
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+    let decimals = get_token_decimals(&env, &token.address);
+    let payment_amount = adjust_for_decimals(600, decimals);
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &payment_amount);
 
     let project = client.get_project(&project_id);
-    assert_eq!(project.remaining_escrow, 400);
+    assert_eq!(project.remaining_escrow, adjust_for_decimals(400, 7));
     assert_eq!(project.status, ProjectStatus::Active);
     assert!(project.milestones.get(0).unwrap().is_paid);
     assert!(!project.milestones.get(1).unwrap().is_paid);
@@ -1358,8 +1354,9 @@ fn test_release_all_milestones_completes_project() {
         &deadline,
     );
 
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
-    client.release_milestone_payment(&owner, &project_id, &2, &contributor, &400);
+    let decimals = get_token_decimals(&env, &token.address);
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &adjust_for_decimals(600, decimals));
+    client.release_milestone_payment(&owner, &project_id, &2, &contributor, &adjust_for_decimals(400, decimals));
 
     let project = client.get_project(&project_id);
     assert_eq!(project.remaining_escrow, 0);
@@ -1405,7 +1402,8 @@ fn test_release_milestone_payment_unauthorized() {
         &deadline,
     );
 
-    let result = client.try_release_milestone_payment(&not_owner, &project_id, &1, &contributor, &1000);
+    let decimals = get_token_decimals(&env, &token.address);
+    let result = client.try_release_milestone_payment(&not_owner, &project_id, &1, &contributor, &adjust_for_decimals(1000, decimals));
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
@@ -1443,9 +1441,10 @@ fn test_release_milestone_payment_already_paid() {
         &deadline,
     );
 
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+    let decimals = get_token_decimals(&env, &token.address);
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &adjust_for_decimals(600, decimals));
 
-    let result = client.try_release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+    let result = client.try_release_milestone_payment(&owner, &project_id, &1, &contributor, &adjust_for_decimals(600, decimals));
     assert_eq!(result, Err(Ok(Error::MilestoneAlreadyPaid)));
 }
 
@@ -1489,7 +1488,7 @@ fn test_cancel_project_gig() {
     let initial_balance = token.balance(&owner);
 
     let refunded = client.cancel_project_gig(&owner, &project_id);
-    assert_eq!(refunded, total_reward);
+    assert_eq!(refunded, adjust_for_decimals(total_reward, 7));
 
     let project = client.get_project(&project_id);
     assert_eq!(project.status, ProjectStatus::Cancelled);
@@ -1533,12 +1532,13 @@ fn test_cancel_project_gig_partial_refund() {
         &deadline,
     );
 
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+    let decimals = get_token_decimals(&env, &token.address);
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &adjust_for_decimals(600, decimals));
 
     let initial_balance = token.balance(&owner);
 
     let refunded = client.cancel_project_gig(&owner, &project_id);
-    assert_eq!(refunded, 400);
+    assert_eq!(refunded, adjust_for_decimals(400, 7));
 
     let project = client.get_project(&project_id);
     assert_eq!(project.status, ProjectStatus::Cancelled);
@@ -1691,19 +1691,20 @@ fn test_project_lifecycle_integration() {
     let adjusted_fee = adjust_for_decimals(platform_fee, get_token_decimals(&env, &token.address));
     assert_eq!(token.balance(&fee_account), adjusted_fee);
 
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor1, &500);
-    let adjusted_m1 = adjust_for_decimals(500, get_token_decimals(&env, &token.address));
+    let decimals = get_token_decimals(&env, &token.address);
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor1, &adjust_for_decimals(500, decimals));
+    let adjusted_m1 = adjust_for_decimals(500, decimals);
     assert_eq!(token.balance(&contributor1), adjusted_m1);
 
-    client.release_milestone_payment(&owner, &project_id, &2, &contributor2, &600);
-    let adjusted_m2 = adjust_for_decimals(600, get_token_decimals(&env, &token.address));
+    client.release_milestone_payment(&owner, &project_id, &2, &contributor2, &adjust_for_decimals(600, decimals));
+    let adjusted_m2 = adjust_for_decimals(600, decimals);
     assert_eq!(token.balance(&contributor2), adjusted_m2);
 
     let project = client.get_project(&project_id);
     assert_eq!(project.status, ProjectStatus::Active);
-    assert_eq!(project.remaining_escrow, 400);
+    assert_eq!(project.remaining_escrow, adjust_for_decimals(400, decimals));
 
-    client.release_milestone_payment(&owner, &project_id, &3, &contributor1, &400);
+    client.release_milestone_payment(&owner, &project_id, &3, &contributor1, &adjust_for_decimals(400, decimals));
 
     let project = client.get_project(&project_id);
     assert_eq!(project.status, ProjectStatus::Completed);
@@ -1724,7 +1725,7 @@ fn test_project_lifecycle_integration() {
 #[test]
 fn test_hackathon_creation() {
     let env = Env::default();
-    let (client, token, distributor, fee_account, admin, _contract_id) = setup_test(&env);
+    let (client, token, distributor, fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
     let organizer = Address::generate(&env);
@@ -1754,10 +1755,15 @@ fn test_hackathon_creation() {
     );
 
     let hackathon = client.get_hackathon(&hackathon_id);
+    let expected_prize_pool = vec![
+        &env,
+        HackathonPrize { position: 1, amount: adjust_for_decimals(600, 7) },
+        HackathonPrize { position: 2, amount: adjust_for_decimals(400, 7) },
+    ];
     assert_eq!(hackathon.status, HackathonStatus::Active);
-    assert_eq!(hackathon.remaining_escrow, 1000);
-    assert_eq!(hackathon.total_budget, 1000);
-    assert_eq!(hackathon.prize_pool, prize_pool);
+    assert_eq!(hackathon.remaining_escrow, adjust_for_decimals(1000, 7));
+    assert_eq!(hackathon.total_budget, adjust_for_decimals(1000, 7));
+    assert_eq!(hackathon.prize_pool, expected_prize_pool);
 
     // Verify fee was paid to fee_account
     let adjusted_fee = adjust_for_decimals(platform_fee, get_token_decimals(&env, &token.address));
@@ -1797,7 +1803,7 @@ fn test_hackathon_creation() {
 #[test]
 fn test_hackathon_update() {
     let env = Env::default();
-    let (client, token, distributor, _fee_account, admin, _contract_id) = setup_test(&env);
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
     let organizer = Address::generate(&env);
@@ -1835,14 +1841,19 @@ fn test_hackathon_update() {
     );
 
     let hackathon = client.get_hackathon(&hackathon_id);
+    let expected_new_prize_pool = vec![
+        &env,
+        HackathonPrize { position: 1, amount: adjust_for_decimals(700, 7) },
+        HackathonPrize { position: 2, amount: adjust_for_decimals(300, 7) },
+    ];
     assert_eq!(hackathon.deadline, new_deadline);
-    assert_eq!(hackathon.prize_pool, new_prize_pool);
+    assert_eq!(hackathon.prize_pool, expected_new_prize_pool);
 }
 
 #[test]
 fn test_hackathon_cancellation() {
     let env = Env::default();
-    let (client, token, distributor, _fee_account, admin, _contract_id) = setup_test(&env);
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
     let organizer = Address::generate(&env);
@@ -1868,7 +1879,7 @@ fn test_hackathon_cancellation() {
     let initial_balance = token.balance(&organizer);
 
     let refunded = client.cancel_hackathon(&organizer, &hackathon_id);
-    assert_eq!(refunded, total_budget);
+    assert_eq!(refunded, adjust_for_decimals(total_budget, 7));
 
     let hackathon = client.get_hackathon(&hackathon_id);
     assert_eq!(hackathon.status, HackathonStatus::Cancelled);
@@ -1881,7 +1892,7 @@ fn test_hackathon_cancellation() {
 #[test]
 fn test_hackathon_prize_distribution() {
     let env = Env::default();
-    let (client, token, distributor, _fee_account, admin, _contract_id) = setup_test(&env);
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
     let organizer = Address::generate(&env);
@@ -1930,7 +1941,7 @@ fn test_hackathon_prize_distribution() {
 #[test]
 fn test_hackathon_getters() {
     let env = Env::default();
-    let (client, token, distributor, _fee_account, admin, _contract_id) = setup_test(&env);
+    let (client, token, distributor, _fee_account, _admin, _contract_id) = setup_test(&env);
     env.mock_all_auths();
 
     let organizer = Address::generate(&env);

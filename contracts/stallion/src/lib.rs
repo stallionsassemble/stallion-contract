@@ -399,16 +399,13 @@ impl StallionContract {
             return Err(Error::JudgingDeadlineMustBeAfterSubmissionDeadline);
         }
 
-        // Calculate fee and total amount to transfer
+        // Get token decimals and adjust reward first to prevent precision loss in fee calculation
         owner.require_auth();
         let token_client = get_token_client(&env, token.clone());
-        let fee = calculate_fee(reward, FeeType::Bounty);
-        let total_amount = reward + fee;
-
-        // Get token decimals and adjust amounts
         let decimals = get_token_decimals(&env, &token);
-        let adjusted_total = adjust_for_decimals(total_amount, decimals);
-        let adjusted_fee = adjust_for_decimals(fee, decimals);
+        let adjusted_reward = adjust_for_decimals(reward, decimals);
+        let adjusted_fee = calculate_fee(adjusted_reward, FeeType::Bounty);
+        let adjusted_total = adjusted_reward + adjusted_fee;
 
         // Transfer reward + fee from owner to contract
         token_client.transfer(&owner, &env.current_contract_address(), &adjusted_total);
@@ -422,8 +419,7 @@ impl StallionContract {
         let next = id + 1;
         storage.set(&next_id_key(), &next);
 
-        // Initialize bounty - store the original reward amount (not adjusted for decimals)
-        // This way when displaying, we show the user-friendly amount
+        // Initialize bounty - store the adjusted reward amount
         let mut distribution_map = Map::new(&env);
         for (rank, percent) in distribution.iter() {
             distribution_map.set(rank, percent);
@@ -431,7 +427,7 @@ impl StallionContract {
         let bounty = Bounty {
             owner: owner.clone(),
             token: token.clone(),
-            reward, // Store the original reward amount for display purposes
+            reward: adjusted_reward, // Store the adjusted reward amount
             distribution: distribution_map,
             submission_deadline,
             judging_deadline,
@@ -546,16 +542,12 @@ impl StallionContract {
             return Err(Error::BountyHasSubmissions);
         }
 
-        // Get token decimals for adjustment
+        // Get token client for transfer
         let token_client = get_token_client(&env, bounty.token.clone());
-        let decimals = get_token_decimals(&env, &bounty.token);
 
-        // Adjust reward amount according to token decimals
-        let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
-
-        // Return funds to owner if the bounty has not been closed
+        // Return funds to owner if the bounty has not been closed (already adjusted)
         if bounty.status != Status::Closed {
-            token_client.transfer(&env.current_contract_address(), &owner, &adjusted_reward);
+            token_client.transfer(&env.current_contract_address(), &owner, &bounty.reward);
         }
 
         // Remove bounty
@@ -586,15 +578,11 @@ impl StallionContract {
             return Err(Error::BountyHasSubmissions);
         }
 
-        // Get token decimals for adjustment
+        // Get token client for transfer
         let token_client = get_token_client(&env, bounty.token.clone());
-        let decimals = get_token_decimals(&env, &bounty.token);
 
-        // Adjust reward amount according to token decimals
-        let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
-
-        // Return funds to owner
-        token_client.transfer(&env.current_contract_address(), &owner, &adjusted_reward);
+        // Return funds to owner (already adjusted)
+        token_client.transfer(&env.current_contract_address(), &owner, &bounty.reward);
 
         // Update bounty status to Closed
         bounty.status = Status::Closed;
@@ -717,9 +705,8 @@ impl StallionContract {
             return Err(Error::NotEnoughWinners);
         }
 
-        // Get token decimals to adjust amounts for transfers
+        // Get token client to transfer reward
         let token_client = get_token_client(&env, bounty.token.clone());
-        let decimals = get_token_decimals(&env, &bounty.token);
 
         // Use the full reward amount for distribution (fee already paid in create_bounty)
         let total_reward = bounty.reward;
@@ -735,23 +722,21 @@ impl StallionContract {
                 let amount = total_reward * (pct as i128) / 100;
                 let winner = winners.get(i as u32).unwrap();
 
-                // Adjust amount for token decimals before transfer
-                let adjusted_amount = adjust_for_decimals(amount, decimals);
-                token_client.transfer(&env.current_contract_address(), &winner, &adjusted_amount);
+                // Amount is already adjusted for token decimals
+                token_client.transfer(&env.current_contract_address(), &winner, &amount);
 
-                distributed += amount; // Track using original amount for calculation purposes
+                distributed += amount; // Track using adjusted amount
             }
         }
 
         // Return remaining funds to owner (if any)
         let remaining = total_reward - distributed;
         if remaining > 0 {
-            // Adjust remaining amount for token decimals
-            let adjusted_remaining = adjust_for_decimals(remaining, decimals);
+            // Remaining amount is already adjusted for token decimals
             token_client.transfer(
                 &env.current_contract_address(),
                 &bounty.owner,
-                &adjusted_remaining,
+                &remaining,
             );
         }
 
@@ -778,21 +763,19 @@ impl StallionContract {
             return Ok(());
         }
 
-        // Get token decimals for adjustment
+        // Get token client for adjustment
         let token_client = get_token_client(&env, bounty.token.clone());
-        let decimals = get_token_decimals(&env, &bounty.token);
 
         // Auto-distribute equally to all applicants (fee already paid in create_bounty)
         let total_reward = bounty.reward;
         let count = bounty.applicants.len() as i128;
 
         if count == 0 {
-            // Return full reward to owner if no applicants
-            let adjusted_reward = adjust_for_decimals(bounty.reward, decimals);
+            // Return full reward to owner if no applicants (already adjusted)
             token_client.transfer(
                 &env.current_contract_address(),
                 &bounty.owner,
-                &adjusted_reward,
+                &bounty.reward,
             );
             return Ok(());
         }
@@ -800,12 +783,9 @@ impl StallionContract {
         // Calculate share for each applicant
         let share = total_reward / count;
 
-        // Adjust share amount for token decimals
-        let adjusted_share = adjust_for_decimals(share, decimals);
-
-        // Distribute to each applicant
+        // Distribute to each applicant (share is already adjusted)
         for applicant in bounty.applicants.iter() {
-            token_client.transfer(&env.current_contract_address(), &applicant, &adjusted_share);
+            token_client.transfer(&env.current_contract_address(), &applicant, &share);
         }
 
         bounty.status = Status::Completed;
@@ -928,13 +908,12 @@ impl StallionContract {
             return Err(Error::InvalidMilestones);
         }
 
-        // Transfer total_reward + platform_fee from owner to contract
+        // Get token decimals and adjust total reward first to prevent precision loss in fee calculation
         let token_client = get_token_client(&env, token.clone());
         let decimals = get_token_decimals(&env, &token);
-        let platform_fee = calculate_fee(total_reward, FeeType::Gig);
-        let total_amount = total_reward + platform_fee;
-        let adjusted_total = adjust_for_decimals(total_amount, decimals);
-        let adjusted_fee = adjust_for_decimals(platform_fee, decimals);
+        let adjusted_reward = adjust_for_decimals(total_reward, decimals);
+        let adjusted_fee = calculate_fee(adjusted_reward, FeeType::Gig);
+        let adjusted_total = adjusted_reward + adjusted_fee;
 
         token_client.transfer(&owner, &env.current_contract_address(), &adjusted_total);
 
@@ -947,23 +926,23 @@ impl StallionContract {
         let next = id + 1;
         storage.set(&next_project_id_key(), &next);
 
-        // Convert MilestoneData to MilestoneInfo
+        // Convert MilestoneData to MilestoneInfo (using adjusted amounts)
         let mut milestone_infos = Vec::new(&env);
         for milestone in milestones.iter() {
             milestone_infos.push_back(MilestoneInfo {
-                amount: milestone.amount,
+                amount: adjust_for_decimals(milestone.amount, decimals),
                 order: milestone.order,
                 is_paid: false,
             });
         }
 
-        // Create project
+        // Create project (using adjusted amounts)
         let project = Project {
             owner: owner.clone(),
             project_type: ProjectType::Gig,
             token: token.clone(),
-            total_reward,
-            remaining_escrow: total_reward,
+            total_reward: adjusted_reward,
+            remaining_escrow: adjusted_reward,
             deadline,
             status: ProjectStatus::Active,
             milestones: milestone_infos,
@@ -1034,17 +1013,20 @@ impl StallionContract {
                 return Err(Error::InvalidMilestones);
             }
 
+            let decimals = get_token_decimals(&env, &project.token);
+            let adjusted_reward = adjust_for_decimals(project.total_reward, decimals);
+
             let mut milestone_infos = Vec::new(&env);
             for milestone in milestones.iter() {
                 milestone_infos.push_back(MilestoneInfo {
-                    amount: milestone.amount,
+                    amount: adjust_for_decimals(milestone.amount, decimals),
                     order: milestone.order,
                     is_paid: false,
                 });
             }
 
             project.milestones = milestone_infos;
-            project.remaining_escrow = project.total_reward;
+            project.remaining_escrow = adjusted_reward;
         }
 
         storage.set(&project_key(project_id), &project);
@@ -1074,11 +1056,11 @@ impl StallionContract {
             return Err(Error::DeadlinePassed);
         }
 
-        // Transfer only platform_fee from owner to contract
+        // Get token decimals and adjust reward amount first to prevent precision loss in fee calculation
         let token_client = get_token_client(&env, token.clone());
         let decimals = get_token_decimals(&env, &token);
-        let platform_fee = calculate_fee(reward_amount, FeeType::Job);
-        let adjusted_fee = adjust_for_decimals(platform_fee, decimals);
+        let adjusted_reward = adjust_for_decimals(reward_amount, decimals);
+        let adjusted_fee = calculate_fee(adjusted_reward, FeeType::Job);
 
         token_client.transfer(&owner, &env.current_contract_address(), &adjusted_fee);
 
@@ -1096,7 +1078,7 @@ impl StallionContract {
             owner: owner.clone(),
             project_type: ProjectType::Job,
             token: token.clone(),
-            total_reward: reward_amount,
+            total_reward: adjust_for_decimals(reward_amount, decimals),
             remaining_escrow: 0,
             deadline,
             status: ProjectStatus::Active,
@@ -1220,12 +1202,9 @@ impl StallionContract {
             return Err(Error::InsufficientEscrow);
         }
 
-        // Transfer payment to contributor
+        // Transfer payment to contributor (already adjusted)
         let token_client = get_token_client(&env, project.token.clone());
-        let decimals = get_token_decimals(&env, &project.token);
-        let adjusted_amount = adjust_for_decimals(amount, decimals);
-
-        token_client.transfer(&env.current_contract_address(), &contributor, &adjusted_amount);
+        token_client.transfer(&env.current_contract_address(), &contributor, &amount);
 
         // Update milestone as paid
         let mut updated_milestone = project.milestones.get(milestone_index).unwrap();
@@ -1290,13 +1269,10 @@ impl StallionContract {
         // Calculate refund amount (remaining escrow)
         let refund_amount = project.remaining_escrow;
 
-        // Transfer refund to owner if there's any remaining escrow
+        // Transfer refund to owner if there's any remaining escrow (already adjusted)
         if refund_amount > 0 {
             let token_client = get_token_client(&env, project.token.clone());
-            let decimals = get_token_decimals(&env, &project.token);
-            let adjusted_refund = adjust_for_decimals(refund_amount, decimals);
-
-            token_client.transfer(&env.current_contract_address(), &owner, &adjusted_refund);
+            token_client.transfer(&env.current_contract_address(), &owner, &refund_amount);
         }
 
         // Update project status
@@ -1350,14 +1326,12 @@ impl StallionContract {
             return Err(Error::InvalidPrizePool);
         }
 
-        let fee = calculate_fee(total_budget, FeeType::Hackathon);
-        let total_amount = total_budget + fee;
-
+        // Get token decimals and adjust total budget first to prevent precision loss in fee calculation
         let token_client = get_token_client(&env, token.clone());
         let decimals = get_token_decimals(&env, &token);
-        
-        let adjusted_total = adjust_for_decimals(total_amount, decimals);
-        let adjusted_fee = adjust_for_decimals(fee, decimals);
+        let adjusted_budget = adjust_for_decimals(total_budget, decimals);
+        let adjusted_fee = calculate_fee(adjusted_budget, FeeType::Hackathon);
+        let adjusted_total = adjusted_budget + adjusted_fee;
 
         token_client.transfer(&owner, &env.current_contract_address(), &adjusted_total);
 
@@ -1368,19 +1342,28 @@ impl StallionContract {
         let next = id + 1;
         storage.set(&crate::storage::next_hackathon_id_key(), &next);
 
+        // Convert prize_pool to adjusted amounts
+        let mut adjusted_prize_pool = Vec::new(&env);
+        for prize in prize_pool.iter() {
+            adjusted_prize_pool.push_back(HackathonPrize {
+                position: prize.position,
+                amount: adjust_for_decimals(prize.amount, decimals),
+            });
+        }
+
         let hackathon = Hackathon {
             owner: owner.clone(),
             token: token.clone(),
-            total_budget,
-            remaining_escrow: total_budget,
+            total_budget: adjusted_budget,
+            remaining_escrow: adjusted_budget,
             deadline,
-            prize_pool,
+            prize_pool: adjusted_prize_pool,
             status: HackathonStatus::Active,
             winners: Map::new(&env),
         };
 
         storage.set(&crate::storage::hackathon_key(id), &hackathon);
-        Events::emit_hackathon_created(&env, id, total_budget);
+        Events::emit_hackathon_created(&env, id, adjusted_budget);
 
         Ok(id)
     }
@@ -1426,8 +1409,11 @@ impl StallionContract {
         }
 
         if let Some(prize_pool) = new_prize_pool {
-            let mut sum = 0;
+            let decimals = get_token_decimals(&env, &hackathon.token);
+            let mut adjusted_sum = 0;
             let mut positions = Map::new(&env);
+            let mut adjusted_prize_pool = Vec::new(&env);
+
             for prize in prize_pool.iter() {
                 if prize.amount <= 0 {
                     return Err(Error::InvalidAmount);
@@ -1436,14 +1422,20 @@ impl StallionContract {
                     return Err(Error::InvalidPosition);
                 }
                 positions.set(prize.position, true);
-                sum += prize.amount;
+                
+                let adjusted_amount = adjust_for_decimals(prize.amount, decimals);
+                adjusted_sum += adjusted_amount;
+                adjusted_prize_pool.push_back(HackathonPrize {
+                    position: prize.position,
+                    amount: adjusted_amount,
+                });
             }
 
-            if sum != hackathon.total_budget {
+            if adjusted_sum != hackathon.total_budget {
                 return Err(Error::InvalidPrizePool);
             }
 
-            hackathon.prize_pool = prize_pool;
+            hackathon.prize_pool = adjusted_prize_pool;
             updated_fields.push_back(Symbol::new(&env, "prize_pool"));
         }
 
@@ -1481,9 +1473,7 @@ impl StallionContract {
 
         if refund_amount > 0 {
             let token_client = get_token_client(&env, hackathon.token.clone());
-            let decimals = get_token_decimals(&env, &hackathon.token);
-            let adjusted_refund = adjust_for_decimals(refund_amount, decimals);
-            token_client.transfer(&env.current_contract_address(), &owner, &adjusted_refund);
+            token_client.transfer(&env.current_contract_address(), &owner, &refund_amount);
         }
 
         hackathon.status = HackathonStatus::Cancelled;
@@ -1533,20 +1523,18 @@ impl StallionContract {
         }
 
         let token_client = get_token_client(&env, hackathon.token.clone());
-        let decimals = get_token_decimals(&env, &hackathon.token);
 
         for prize in hackathon.prize_pool.iter() {
             let winner_addr = provided_winners.get(prize.position).unwrap();
-            let adjusted_prize = adjust_for_decimals(prize.amount, decimals);
-            token_client.transfer(&env.current_contract_address(), &winner_addr, &adjusted_prize);
+            // Prize amount is already adjusted
+            token_client.transfer(&env.current_contract_address(), &winner_addr, &prize.amount);
             hackathon.remaining_escrow -= prize.amount;
         }
 
-        // Refund any remaining escrow due to rounding or other reasons
+        // Refund any remaining escrow (already adjusted)
         let refund = hackathon.remaining_escrow;
         if refund > 0 {
-            let adjusted_refund = adjust_for_decimals(refund, decimals);
-            token_client.transfer(&env.current_contract_address(), &owner, &adjusted_refund);
+            token_client.transfer(&env.current_contract_address(), &owner, &refund);
             hackathon.remaining_escrow = 0;
         }
 
