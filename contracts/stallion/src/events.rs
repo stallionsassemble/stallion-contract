@@ -18,7 +18,7 @@ impl Events {
     fn submission_added_event(env: &Env) -> Symbol {
         Symbol::new(env, "submission_added")
     }
-    
+
     fn submission_updated_event(env: &Env) -> Symbol {
         Symbol::new(env, "submission_updated")
     }
@@ -79,39 +79,39 @@ impl Events {
         Symbol::new(env, "hackathon_prizes_distributed")
     }
 
-    pub fn emit_bounty_created(env: &Env, bounty_id: u32) {
+    pub fn emit_bounty_created(env: &Env, bounty_id: u64) {
         env.events()
             .publish((Self::bounty_created_event(env),), bounty_id);
     }
 
-    pub fn emit_bounty_updated(env: &Env, bounty_id: u32, updated_fields: Vec<Symbol>) {
+    pub fn emit_bounty_updated(env: &Env, bounty_id: u64, updated_fields: Vec<Symbol>) {
         env.events().publish(
             (Self::bounty_updated_event(env),),
             vec![env, (bounty_id, updated_fields)],
         );
     }
 
-    pub fn emit_bounty_deleted(env: &Env, bounty_id: u32) {
+    pub fn emit_bounty_deleted(env: &Env, bounty_id: u64) {
         env.events()
             .publish((Self::bounty_deleted_event(env),), bounty_id);
     }
 
-    pub fn emit_submission_added(env: &Env, bounty_id: u32, applicant: Address) {
+    pub fn emit_submission_added(env: &Env, bounty_id: u64, applicant: Address) {
         env.events()
             .publish((Self::submission_added_event(env),), (bounty_id, applicant));
     }
-    
-    pub fn emit_submission_updated(env: &Env, bounty_id: u32, applicant: Address) {
+
+    pub fn emit_submission_updated(env: &Env, bounty_id: u64, applicant: Address) {
         env.events()
             .publish((Self::submission_updated_event(env),), (bounty_id, applicant));
     }
 
-    pub fn emit_winners_selected(env: &Env, bounty_id: u32, winners: Vec<Address>) {
+    pub fn emit_winners_selected(env: &Env, bounty_id: u64, winners: Vec<Address>) {
         env.events()
             .publish((Self::winners_selected_event(env),), (bounty_id, winners));
     }
 
-    pub fn emit_auto_distributed(env: &Env, bounty_id: u32) {
+    pub fn emit_auto_distributed(env: &Env, bounty_id: u64) {
         env.events()
             .publish((Self::auto_distributed_event(env),), bounty_id);
     }
@@ -126,54 +126,54 @@ impl Events {
             .publish((Self::fee_account_updated_event(env),), new_fee_account);
     }
 
-    pub fn emit_bounty_closed(env: &Env, bounty_id: u32) {
+    pub fn emit_bounty_closed(env: &Env, bounty_id: u64) {
         env.events()
             .publish((Self::bounty_closed_event(env),), bounty_id);
     }
 
-    pub fn emit_project_gig_created(env: &Env, project_id: u32, total_reward: i128) {
+    pub fn emit_project_gig_created(env: &Env, project_id: u64, total_reward: i128) {
         env.events()
             .publish((Self::project_gig_created_event(env),), (project_id, total_reward));
     }
 
-    pub fn emit_project_job_created(env: &Env, project_id: u32) {
+    pub fn emit_project_job_created(env: &Env, project_id: u64) {
         env.events()
             .publish((Self::project_job_created_event(env),), project_id);
     }
 
-    pub fn emit_milestone_paid(env: &Env, project_id: u32, milestone_order: u32, contributor: Address, amount: i128) {
+    pub fn emit_milestone_paid(env: &Env, project_id: u64, milestone_order: u32, contributor: Address, amount: i128) {
         env.events()
             .publish((Self::milestone_paid_event(env),), (project_id, milestone_order, contributor, amount));
     }
 
-    pub fn emit_project_cancelled(env: &Env, project_id: u32, refunded_amount: i128) {
+    pub fn emit_project_cancelled(env: &Env, project_id: u64, refunded_amount: i128) {
         env.events()
             .publish((Self::project_cancelled_event(env),), (project_id, refunded_amount));
     }
 
-    pub fn emit_project_completed(env: &Env, project_id: u32) {
+    pub fn emit_project_completed(env: &Env, project_id: u64) {
         env.events()
             .publish((Self::project_completed_event(env),), project_id);
     }
 
-    pub fn emit_hackathon_created(env: &Env, hackathon_id: u32, total_budget: i128) {
+    pub fn emit_hackathon_created(env: &Env, hackathon_id: u64, total_budget: i128) {
         env.events()
             .publish((Self::hackathon_created_event(env),), (hackathon_id, total_budget));
     }
 
-    pub fn emit_hackathon_updated(env: &Env, hackathon_id: u32, updated_fields: Vec<Symbol>) {
+    pub fn emit_hackathon_updated(env: &Env, hackathon_id: u64, updated_fields: Vec<Symbol>) {
         env.events().publish(
             (Self::hackathon_updated_event(env),),
             vec![env, (hackathon_id, updated_fields)],
         );
     }
 
-    pub fn emit_hackathon_cancelled(env: &Env, hackathon_id: u32, refunded_amount: i128) {
+    pub fn emit_hackathon_cancelled(env: &Env, hackathon_id: u64, refunded_amount: i128) {
         env.events()
             .publish((Self::hackathon_cancelled_event(env),), (hackathon_id, refunded_amount));
     }
 
-    pub fn emit_hackathon_prizes_distributed(env: &Env, hackathon_id: u32) {
+    pub fn emit_hackathon_prizes_distributed(env: &Env, hackathon_id: u64) {
         env.events()
             .publish((Self::hackathon_prizes_distributed_event(env),), hackathon_id);
     }

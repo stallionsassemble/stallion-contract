@@ -166,6 +166,7 @@ pub enum DataKey {
     Project = 7,
     NextHackathonId = 8,
     Hackathon = 9,
+    DeploymentSeq = 10,
 }
 
 impl TryFromVal<Env, DataKey> for Val {

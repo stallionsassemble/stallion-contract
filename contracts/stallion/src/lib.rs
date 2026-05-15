@@ -14,7 +14,7 @@ use crate::utils::{
     validate_distribution_sum, FeeType,
 };
 use events::Events;
-use storage::{admin_key, bounty_key, fee_account_key, next_id_key, next_project_id_key, project_key};
+use storage::{admin_key, bounty_key, deployment_seq_key, fee_account_key, next_id_key, next_project_id_key, project_key};
 
 contractmeta!(key = "Version", val = "0.1.0");
 contractmeta!(
@@ -46,6 +46,7 @@ impl StallionContract {
         let storage = env.storage().persistent();
         storage.set(&admin_key(), &admin);
         storage.set(&fee_account_key(), &fee_account);
+        storage.set(&deployment_seq_key(), &env.ledger().sequence());
         Events::emit_admin_updated(&env, admin);
         Events::emit_fee_account_updated(&env, fee_account);
     }
@@ -60,6 +61,14 @@ impl StallionContract {
 
     fn get_fee_account(env: &Env) -> Address {
         env.storage().persistent().get(&fee_account_key()).unwrap()
+    }
+
+    // Returns the high-order base for IDs in this deployment.
+    // Upper 32 bits encode the ledger sequence at deployment time so that IDs
+    // from different contract deployments never collide.
+    fn id_base(env: &Env) -> u64 {
+        let seq: u32 = env.storage().persistent().get(&deployment_seq_key()).unwrap_or(0);
+        (seq as u64) << 32
     }
 
     // ========================================
@@ -104,11 +113,13 @@ impl StallionContract {
     // BOUNTY QUERY FUNCTIONS
     // ========================================
 
-    pub fn get_bounties(env: Env) -> Vec<u32> {
+    pub fn get_bounties(env: Env) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut bounties = Vec::new(&env);
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -119,11 +130,13 @@ impl StallionContract {
         bounties
     }
 
-    pub fn get_user_bounties(env: Env, user: Address) -> Vec<u32> {
+    pub fn get_user_bounties(env: Env, user: Address) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut bounties = Vec::new(&env);
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -139,9 +152,11 @@ impl StallionContract {
 
     pub fn get_user_bounties_count(env: Env, user: Address) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut count = 0;
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -155,11 +170,13 @@ impl StallionContract {
         count
     }
 
-    pub fn get_owner_bounties(env: Env, owner: Address) -> Vec<u32> {
+    pub fn get_owner_bounties(env: Env, owner: Address) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut bounties = Vec::new(&env);
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -175,9 +192,11 @@ impl StallionContract {
 
     pub fn get_owner_bounties_count(env: Env, owner: Address) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut count = 0;
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -191,11 +210,13 @@ impl StallionContract {
         count
     }
 
-    pub fn get_bounties_by_token(env: Env, token: Address) -> Vec<u32> {
+    pub fn get_bounties_by_token(env: Env, token: Address) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut bounties = Vec::new(&env);
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -211,9 +232,11 @@ impl StallionContract {
 
     pub fn get_bounties_by_token_count(env: Env, token: Address) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut count = 0;
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -227,12 +250,14 @@ impl StallionContract {
         count
     }
 
-    pub fn get_active_bounties(env: Env) -> Vec<u32> {
+    pub fn get_active_bounties(env: Env) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut active = Vec::new(&env);
 
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -248,10 +273,12 @@ impl StallionContract {
 
     pub fn get_bounties_count(env: Env) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
 
         let mut count = 0;
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -263,11 +290,13 @@ impl StallionContract {
         count
     }
 
-    pub fn get_bounties_by_status(env: Env, status: Status) -> Vec<u32> {
+    pub fn get_bounties_by_status(env: Env, status: Status) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut bounties = Vec::new(&env);
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -283,9 +312,11 @@ impl StallionContract {
 
     pub fn get_bounties_by_status_count(env: Env, status: Status) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_id_key()).unwrap_or(start);
         let mut count = 0;
-        for id in 1..next_id {
+        for id in start..next_id {
             let bounty: Option<Bounty> = storage.get(&bounty_key(id));
             if bounty.is_none() {
                 continue;
@@ -299,7 +330,7 @@ impl StallionContract {
         count
     }
 
-    pub fn get_bounty(env: Env, bounty_id: u32) -> Result<Bounty, Error> {
+    pub fn get_bounty(env: Env, bounty_id: u64) -> Result<Bounty, Error> {
         let storage = env.storage().persistent();
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
         if bounty.is_none() {
@@ -310,7 +341,7 @@ impl StallionContract {
         Ok(bounty)
     }
 
-    pub fn get_submission(env: Env, bounty_id: u32, user: Address) -> Result<String, Error> {
+    pub fn get_submission(env: Env, bounty_id: u64, user: Address) -> Result<String, Error> {
         let storage = env.storage().persistent();
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
         if bounty.is_none() {
@@ -326,7 +357,7 @@ impl StallionContract {
         Ok(submission.unwrap())
     }
 
-    pub fn get_bounty_submissions(env: Env, bounty_id: u32) -> Result<Map<Address, String>, Error> {
+    pub fn get_bounty_submissions(env: Env, bounty_id: u64) -> Result<Map<Address, String>, Error> {
         let storage = env.storage().persistent();
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
         if bounty.is_none() {
@@ -337,7 +368,7 @@ impl StallionContract {
         Ok(bounty.submissions)
     }
 
-    pub fn get_bounty_applicants(env: Env, bounty_id: u32) -> Result<Vec<Address>, Error> {
+    pub fn get_bounty_applicants(env: Env, bounty_id: u64) -> Result<Vec<Address>, Error> {
         let storage = env.storage().persistent();
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
         if bounty.is_none() {
@@ -348,7 +379,7 @@ impl StallionContract {
         Ok(bounty.applicants)
     }
 
-    pub fn get_bounty_winners(env: Env, bounty_id: u32) -> Result<Vec<Address>, Error> {
+    pub fn get_bounty_winners(env: Env, bounty_id: u64) -> Result<Vec<Address>, Error> {
         let storage = env.storage().persistent();
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
         if bounty.is_none() {
@@ -359,7 +390,7 @@ impl StallionContract {
         Ok(bounty.winners)
     }
 
-    pub fn get_bounty_status(env: Env, bounty_id: u32) -> Result<Status, Error> {
+    pub fn get_bounty_status(env: Env, bounty_id: u64) -> Result<Status, Error> {
         let storage = env.storage().persistent();
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
         if bounty.is_none() {
@@ -383,7 +414,7 @@ impl StallionContract {
         submission_deadline: u64,
         judging_deadline: u64,
         title: String,
-    ) -> Result<u32, Error> {
+    ) -> Result<u64, Error> {
         let storage = env.storage().persistent();
 
         if reward <= 0 {
@@ -414,10 +445,10 @@ impl StallionContract {
         let fee_account = Self::get_fee_account(&env);
         token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
-        // Assign new bounty ID
-        let id: u32 = storage.get(&next_id_key()).unwrap_or(1);
-        let next = id + 1;
-        storage.set(&next_id_key(), &next);
+        // Assign new bounty ID — upper 32 bits encode deployment epoch for global uniqueness
+        let base = Self::id_base(&env);
+        let id: u64 = storage.get(&next_id_key()).unwrap_or(base + 1);
+        storage.set(&next_id_key(), &(id + 1));
 
         // Initialize bounty - store the adjusted reward amount
         let mut distribution_map = Map::new(&env);
@@ -446,7 +477,7 @@ impl StallionContract {
     pub fn update_bounty(
         env: Env,
         owner: Address,
-        bounty_id: u32,
+        bounty_id: u64,
         new_title: Option<String>,
         new_distribution: Vec<(u32, u32)>,
         new_submission_deadline: Option<u64>,
@@ -521,7 +552,7 @@ impl StallionContract {
         Ok(())
     }
 
-    pub fn delete_bounty(env: Env, owner: Address, bounty_id: u32) -> Result<(), Error> {
+    pub fn delete_bounty(env: Env, owner: Address, bounty_id: u64) -> Result<(), Error> {
         owner.require_auth();
 
         let storage = env.storage().persistent();
@@ -555,9 +586,9 @@ impl StallionContract {
         Events::emit_bounty_deleted(&env, bounty_id);
 
         Ok(())
-    }
+    } 
 
-    pub fn close_bounty(env: Env, owner: Address, bounty_id: u32) -> Result<(), Error> {
+    pub fn close_bounty(env: Env, owner: Address, bounty_id: u64) -> Result<(), Error> {
         owner.require_auth();
 
         let storage = env.storage().persistent();
@@ -595,7 +626,7 @@ impl StallionContract {
     pub fn apply_to_bounty(
         env: Env,
         applicant: Address,
-        bounty_id: u32,
+        bounty_id: u64,
         submission_link: String,
     ) -> Result<(), Error> {
         applicant.require_auth();
@@ -631,7 +662,7 @@ impl StallionContract {
     pub fn update_submission(
         env: Env,
         applicant: Address,
-        bounty_id: u32,
+        bounty_id: u64,
         new_submission_link: String,
     ) -> Result<(), Error> {
         applicant.require_auth();
@@ -676,7 +707,7 @@ impl StallionContract {
     pub fn select_winners(
         env: Env,
         owner: Address,
-        bounty_id: u32,
+        bounty_id: u64,
         winners: Vec<Address>,
     ) -> Result<(), Error> {
         owner.require_auth();
@@ -748,7 +779,7 @@ impl StallionContract {
         Ok(())
     }
 
-    pub fn check_judging(env: Env, bounty_id: u32) -> Result<(), Error> {
+    pub fn check_judging(env: Env, bounty_id: u64) -> Result<(), Error> {
         let storage = env.storage().persistent();
 
         let bounty: Option<Bounty> = storage.get(&bounty_key(bounty_id));
@@ -799,10 +830,10 @@ impl StallionContract {
     // PROJECT QUERY FUNCTIONS
     // ========================================
 
-    pub fn get_project(env: Env, project_id: u32) -> Result<Project, Error> {
+    pub fn get_project(env: Env, project_id: u64) -> Result<Project, Error> {
         let storage = env.storage().persistent();
         let project: Option<Project> = storage.get(&project_key(project_id));
-        
+
         if project.is_none() {
             return Err(Error::ProjectNotFound);
         }
@@ -810,27 +841,31 @@ impl StallionContract {
         Ok(project.unwrap())
     }
 
-    pub fn get_projects(env: Env) -> Vec<u32> {
+    pub fn get_projects(env: Env) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_project_id_key()).unwrap_or(start);
         let mut projects = Vec::new(&env);
-        
-        for id in 1..next_id {
+
+        for id in start..next_id {
             let project: Option<Project> = storage.get(&project_key(id));
             if project.is_some() {
                 projects.push_back(id);
             }
         }
-        
+
         projects
     }
 
-    pub fn get_owner_projects(env: Env, owner: Address) -> Vec<u32> {
+    pub fn get_owner_projects(env: Env, owner: Address) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_project_id_key()).unwrap_or(start);
         let mut projects = Vec::new(&env);
-        
-        for id in 1..next_id {
+
+        for id in start..next_id {
             let project: Option<Project> = storage.get(&project_key(id));
             if project.is_none() {
                 continue;
@@ -841,16 +876,18 @@ impl StallionContract {
                 projects.push_back(id);
             }
         }
-        
+
         projects
     }
 
-    pub fn get_projects_by_status(env: Env, status: ProjectStatus) -> Vec<u32> {
+    pub fn get_projects_by_status(env: Env, status: ProjectStatus) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&next_project_id_key()).unwrap_or(start);
         let mut projects = Vec::new(&env);
-        
-        for id in 1..next_id {
+
+        for id in start..next_id {
             let project: Option<Project> = storage.get(&project_key(id));
             if project.is_none() {
                 continue;
@@ -861,7 +898,7 @@ impl StallionContract {
                 projects.push_back(id);
             }
         }
-        
+
         projects
     }
 
@@ -876,7 +913,7 @@ impl StallionContract {
         total_reward: i128,
         milestones: Vec<MilestoneData>,
         deadline: u64,
-    ) -> Result<u32, Error> {
+    ) -> Result<u64, Error> {
         owner.require_auth();
 
         let storage = env.storage().persistent();
@@ -921,10 +958,10 @@ impl StallionContract {
         let fee_account = Self::get_fee_account(&env);
         token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
-        // Assign new project ID
-        let id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
-        let next = id + 1;
-        storage.set(&next_project_id_key(), &next);
+        // Assign new project ID — upper 32 bits encode deployment epoch for global uniqueness
+        let base = Self::id_base(&env);
+        let id: u64 = storage.get(&next_project_id_key()).unwrap_or(base + 1);
+        storage.set(&next_project_id_key(), &(id + 1));
 
         // Convert MilestoneData to MilestoneInfo (using adjusted amounts)
         let mut milestone_infos = Vec::new(&env);
@@ -957,7 +994,7 @@ impl StallionContract {
     pub fn update_project_gig(
         env: Env,
         owner: Address,
-        project_id: u32,
+        project_id: u64,
         new_milestones: Option<Vec<MilestoneData>>,
         new_deadline: Option<u64>,
     ) -> Result<(), Error> {
@@ -1040,7 +1077,7 @@ impl StallionContract {
         token: Address,
         reward_amount: i128,
         deadline: u64,
-    ) -> Result<u32, Error> {
+    ) -> Result<u64, Error> {
         owner.require_auth();
 
         let storage = env.storage().persistent();
@@ -1068,10 +1105,10 @@ impl StallionContract {
         let fee_account = Self::get_fee_account(&env);
         token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
-        // Assign new project ID
-        let id: u32 = storage.get(&next_project_id_key()).unwrap_or(1);
-        let next = id + 1;
-        storage.set(&next_project_id_key(), &next);
+        // Assign new project ID — upper 32 bits encode deployment epoch for global uniqueness
+        let base = Self::id_base(&env);
+        let id: u64 = storage.get(&next_project_id_key()).unwrap_or(base + 1);
+        storage.set(&next_project_id_key(), &(id + 1));
 
         // Create project (no escrow, no milestones)
         let project = Project {
@@ -1094,7 +1131,7 @@ impl StallionContract {
     pub fn update_project_job(
         env: Env,
         owner: Address,
-        project_id: u32,
+        project_id: u64,
         new_deadline: Option<u64>,
     ) -> Result<(), Error> {
         owner.require_auth();
@@ -1140,7 +1177,7 @@ impl StallionContract {
     pub fn release_milestone_payment(
         env: Env,
         owner: Address,
-        project_id: u32,
+        project_id: u64,
         milestone_order: u32,
         contributor: Address,
         amount: i128,
@@ -1237,7 +1274,7 @@ impl StallionContract {
     pub fn cancel_project_gig(
         env: Env,
         owner: Address,
-        project_id: u32,
+        project_id: u64,
     ) -> Result<i128, Error> {
         owner.require_auth();
 
@@ -1295,9 +1332,9 @@ impl StallionContract {
         total_budget: i128,
         prize_pool: Vec<HackathonPrize>,
         deadline: u64,
-    ) -> Result<u32, Error> {
+    ) -> Result<u64, Error> {
         let storage = env.storage().persistent();
-        
+
         owner.require_auth();
 
         if total_budget <= 0 {
@@ -1338,9 +1375,10 @@ impl StallionContract {
         let fee_account = Self::get_fee_account(&env);
         token_client.transfer(&env.current_contract_address(), &fee_account, &adjusted_fee);
 
-        let id: u32 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(1);
-        let next = id + 1;
-        storage.set(&crate::storage::next_hackathon_id_key(), &next);
+        // Assign new hackathon ID — upper 32 bits encode deployment epoch for global uniqueness
+        let base = Self::id_base(&env);
+        let id: u64 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(base + 1);
+        storage.set(&crate::storage::next_hackathon_id_key(), &(id + 1));
 
         // Convert prize_pool to adjusted amounts
         let mut adjusted_prize_pool = Vec::new(&env);
@@ -1371,7 +1409,7 @@ impl StallionContract {
     pub fn update_hackathon(
         env: Env,
         owner: Address,
-        hackathon_id: u32,
+        hackathon_id: u64,
         new_deadline: Option<u64>,
         new_prize_pool: Option<Vec<HackathonPrize>>,
     ) -> Result<(), Error> {
@@ -1448,7 +1486,7 @@ impl StallionContract {
     pub fn cancel_hackathon(
         env: Env,
         owner: Address,
-        hackathon_id: u32,
+        hackathon_id: u64,
     ) -> Result<i128, Error> {
         let storage = env.storage().persistent();
 
@@ -1488,7 +1526,7 @@ impl StallionContract {
     pub fn distribute_hackathon_prizes(
         env: Env,
         owner: Address,
-        hackathon_id: u32,
+        hackathon_id: u64,
         winners: Vec<(u32, Address)>,
     ) -> Result<(), Error> {
         let storage = env.storage().persistent();
@@ -1547,7 +1585,7 @@ impl StallionContract {
         Ok(())
     }
 
-    pub fn get_hackathon(env: Env, hackathon_id: u32) -> Result<Hackathon, Error> {
+    pub fn get_hackathon(env: Env, hackathon_id: u64) -> Result<Hackathon, Error> {
         let storage = env.storage().persistent();
         let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
         if hackathon.is_none() {
@@ -1556,11 +1594,13 @@ impl StallionContract {
         Ok(hackathon.unwrap())
     }
 
-    pub fn get_hackathons(env: Env) -> Vec<u32> {
+    pub fn get_hackathons(env: Env) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(start);
         let mut hackathons = Vec::new(&env);
-        for id in 1..next_id {
+        for id in start..next_id {
             let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(id));
             if hackathon.is_none() {
                 continue;
@@ -1570,7 +1610,7 @@ impl StallionContract {
         hackathons
     }
 
-    pub fn get_hackathon_status(env: Env, hackathon_id: u32) -> Result<HackathonStatus, Error> {
+    pub fn get_hackathon_status(env: Env, hackathon_id: u64) -> Result<HackathonStatus, Error> {
         let storage = env.storage().persistent();
         let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(hackathon_id));
         if hackathon.is_none() {
@@ -1581,9 +1621,11 @@ impl StallionContract {
 
     pub fn get_hackathons_count(env: Env) -> u32 {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(start);
         let mut count = 0;
-        for id in 1..next_id {
+        for id in start..next_id {
             let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(id));
             if hackathon.is_none() {
                 continue;
@@ -1593,11 +1635,13 @@ impl StallionContract {
         count
     }
 
-    pub fn get_hackathons_by_status(env: Env, status: HackathonStatus) -> Vec<u32> {
+    pub fn get_hackathons_by_status(env: Env, status: HackathonStatus) -> Vec<u64> {
         let storage = env.storage().persistent();
-        let next_id: u32 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(1);
+        let base = Self::id_base(&env);
+        let start = base + 1;
+        let next_id: u64 = storage.get(&crate::storage::next_hackathon_id_key()).unwrap_or(start);
         let mut hackathons = Vec::new(&env);
-        for id in 1..next_id {
+        for id in start..next_id {
             let hackathon: Option<Hackathon> = storage.get(&crate::storage::hackathon_key(id));
             if hackathon.is_none() {
                 continue;

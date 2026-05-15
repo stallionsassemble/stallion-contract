@@ -66,7 +66,7 @@ fn setup_test(
 // EVENT VERIFICATION HELPERS
 // ========================================
 
-fn verify_bounty_created_event(env: &Env, contract_id: &Address, bounty_id: &u32) {
+fn verify_bounty_created_event(env: &Env, contract_id: &Address, bounty_id: &u64) {
     let event = env
         .events()
         .all()
@@ -79,13 +79,13 @@ fn verify_bounty_created_event(env: &Env, contract_id: &Address, bounty_id: &u32
         Symbol::from_val(env, &event.1.get_unchecked(0)),
         Symbol::new(env, "bounty_created")
     );
-    assert_eq!(u32::from_val(env, &event.2), *bounty_id);
+    assert_eq!(u64::from_val(env, &event.2), *bounty_id);
 }
 
 fn verify_bounty_updated_event(
     env: &Env,
     contract_id: &Address,
-    bounty_id: &u32,
+    bounty_id: &u64,
     updated_fields: &Vec<Symbol>,
 ) {
     let event = env
@@ -106,7 +106,7 @@ fn verify_bounty_updated_event(
     );
 }
 
-fn verify_bounty_deleted_event(env: &Env, contract_id: &Address, bounty_id: &u32) {
+fn verify_bounty_deleted_event(env: &Env, contract_id: &Address, bounty_id: &u64) {
     let event = env
         .events()
         .all()
@@ -119,10 +119,10 @@ fn verify_bounty_deleted_event(env: &Env, contract_id: &Address, bounty_id: &u32
         Symbol::from_val(env, &event.1.get_unchecked(0)),
         Symbol::new(env, "bounty_deleted")
     );
-    assert_eq!(u32::from_val(env, &event.2), *bounty_id);
+    assert_eq!(u64::from_val(env, &event.2), *bounty_id);
 }
 
-fn verify_bounty_closed_event(env: &Env, contract_id: &Address, bounty_id: &u32) {
+fn verify_bounty_closed_event(env: &Env, contract_id: &Address, bounty_id: &u64) {
     let event = env
         .events()
         .all()
@@ -135,7 +135,7 @@ fn verify_bounty_closed_event(env: &Env, contract_id: &Address, bounty_id: &u32)
         Symbol::from_val(env, &event.1.get_unchecked(0)),
         Symbol::new(env, "bounty_closed")
     );
-    assert_eq!(u32::from_val(env, &event.2), *bounty_id);
+    assert_eq!(u64::from_val(env, &event.2), *bounty_id);
 }
 
 fn verify_admin_updated_event(env: &Env, contract_id: &Address, admin: &Address) {
