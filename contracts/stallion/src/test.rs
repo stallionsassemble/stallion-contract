@@ -1306,9 +1306,7 @@ fn test_release_milestone_payment() {
         &deadline,
     );
 
-    let decimals = get_token_decimals(&env, &token.address);
-    let payment_amount = adjust_for_decimals(600, decimals);
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &payment_amount);
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
 
     let project = client.get_project(&project_id);
     assert_eq!(project.remaining_escrow, adjust_for_decimals(400, 7));
@@ -1354,9 +1352,9 @@ fn test_release_all_milestones_completes_project() {
         &deadline,
     );
 
-    let decimals = get_token_decimals(&env, &token.address);
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &adjust_for_decimals(600, decimals));
-    client.release_milestone_payment(&owner, &project_id, &2, &contributor, &adjust_for_decimals(400, decimals));
+
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+    client.release_milestone_payment(&owner, &project_id, &2, &contributor, &400);
 
     let project = client.get_project(&project_id);
     assert_eq!(project.remaining_escrow, 0);
@@ -1402,8 +1400,8 @@ fn test_release_milestone_payment_unauthorized() {
         &deadline,
     );
 
-    let decimals = get_token_decimals(&env, &token.address);
-    let result = client.try_release_milestone_payment(&not_owner, &project_id, &1, &contributor, &adjust_for_decimals(1000, decimals));
+
+    let result = client.try_release_milestone_payment(&not_owner, &project_id, &1, &contributor, &1000);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
@@ -1441,10 +1439,10 @@ fn test_release_milestone_payment_already_paid() {
         &deadline,
     );
 
-    let decimals = get_token_decimals(&env, &token.address);
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &adjust_for_decimals(600, decimals));
 
-    let result = client.try_release_milestone_payment(&owner, &project_id, &1, &contributor, &adjust_for_decimals(600, decimals));
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
+
+    let result = client.try_release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
     assert_eq!(result, Err(Ok(Error::MilestoneAlreadyPaid)));
 }
 
@@ -1532,8 +1530,8 @@ fn test_cancel_project_gig_partial_refund() {
         &deadline,
     );
 
-    let decimals = get_token_decimals(&env, &token.address);
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &adjust_for_decimals(600, decimals));
+
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor, &600);
 
     let initial_balance = token.balance(&owner);
 
@@ -1692,11 +1690,11 @@ fn test_project_lifecycle_integration() {
     assert_eq!(token.balance(&fee_account), adjusted_fee);
 
     let decimals = get_token_decimals(&env, &token.address);
-    client.release_milestone_payment(&owner, &project_id, &1, &contributor1, &adjust_for_decimals(500, decimals));
+    client.release_milestone_payment(&owner, &project_id, &1, &contributor1, &500);
     let adjusted_m1 = adjust_for_decimals(500, decimals);
     assert_eq!(token.balance(&contributor1), adjusted_m1);
 
-    client.release_milestone_payment(&owner, &project_id, &2, &contributor2, &adjust_for_decimals(600, decimals));
+    client.release_milestone_payment(&owner, &project_id, &2, &contributor2, &600);
     let adjusted_m2 = adjust_for_decimals(600, decimals);
     assert_eq!(token.balance(&contributor2), adjusted_m2);
 
@@ -1704,7 +1702,7 @@ fn test_project_lifecycle_integration() {
     assert_eq!(project.status, ProjectStatus::Active);
     assert_eq!(project.remaining_escrow, adjust_for_decimals(400, decimals));
 
-    client.release_milestone_payment(&owner, &project_id, &3, &contributor1, &adjust_for_decimals(400, decimals));
+    client.release_milestone_payment(&owner, &project_id, &3, &contributor1, &400);
 
     let project = client.get_project(&project_id);
     assert_eq!(project.status, ProjectStatus::Completed);

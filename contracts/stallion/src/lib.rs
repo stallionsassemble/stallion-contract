@@ -1212,6 +1212,9 @@ impl StallionContract {
         // Find milestone
         let mut milestone_found = false;
         let mut milestone_index: u32 = 0;
+        let decimals = get_token_decimals(&env, &project.token);
+        let adjusted_amount = adjust_for_decimals(amount, decimals);
+
         for (i, milestone) in project.milestones.iter().enumerate() {
             if milestone.order == milestone_order {
                 milestone_found = true;
@@ -1223,7 +1226,7 @@ impl StallionContract {
                 }
 
                 // Verify amount matches
-                if milestone.amount != amount {
+                if milestone.amount != adjusted_amount {
                     return Err(Error::InvalidAmount);
                 }
                 break;
@@ -1235,13 +1238,13 @@ impl StallionContract {
         }
 
         // Verify sufficient escrow
-        if project.remaining_escrow < amount {
+        if project.remaining_escrow < adjusted_amount {
             return Err(Error::InsufficientEscrow);
         }
 
-        // Transfer payment to contributor (already adjusted)
+        // Transfer payment to contributor (using adjusted amount)
         let token_client = get_token_client(&env, project.token.clone());
-        token_client.transfer(&env.current_contract_address(), &contributor, &amount);
+        token_client.transfer(&env.current_contract_address(), &contributor, &adjusted_amount);
 
         // Update milestone as paid
         let mut updated_milestone = project.milestones.get(milestone_index).unwrap();
@@ -1249,7 +1252,7 @@ impl StallionContract {
         project.milestones.set(milestone_index, updated_milestone);
 
         // Update remaining escrow
-        project.remaining_escrow -= amount;
+        project.remaining_escrow -= adjusted_amount;
 
         // Check if all milestones are paid
         let mut all_paid = true;
@@ -1266,7 +1269,7 @@ impl StallionContract {
         }
 
         storage.set(&project_key(project_id), &project);
-        Events::emit_milestone_paid(&env, project_id, milestone_order, contributor, amount);
+        Events::emit_milestone_paid(&env, project_id, milestone_order, contributor, adjusted_amount);
 
         Ok(())
     }
